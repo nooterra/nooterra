@@ -106,16 +106,21 @@ function ConnectButton({ name, icon: Icon, connected, connecting, onConnect, des
   );
 }
 
-function SyncProgress({ syncing, counts }) {
-  if (!syncing && counts.total === 0) return null;
+function SyncProgress({ syncing, counts, stalled }) {
+  if (!syncing && counts.total === 0 && !stalled) return null;
 
   return (
     <div className="mt-4 p-4 rounded-lg border border-edge bg-surface-1 animate-fade-in">
       <div className="flex items-center gap-2 mb-3">
-        {syncing ? (
+        {syncing && !stalled ? (
           <>
             <RefreshCw size={14} className="text-accent animate-spin" />
-            <span className="text-xs font-medium text-text-primary">Syncing your data...</span>
+            <span className="text-xs font-medium text-text-primary">Syncing your Stripe data...</span>
+          </>
+        ) : stalled ? (
+          <>
+            <AlertTriangle size={14} className="text-status-attention" />
+            <span className="text-xs font-medium text-status-attention">Sync may have stalled. Try refreshing.</span>
           </>
         ) : (
           <>
@@ -124,24 +129,26 @@ function SyncProgress({ syncing, counts }) {
           </>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="text-center">
-          <Users size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.customers}</span>
-          <p className="text-2xs text-text-tertiary">Companies</p>
+      {counts.total > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="text-center">
+            <Users size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.customers}</span>
+            <p className="text-2xs text-text-tertiary">Companies</p>
+          </div>
+          <div className="text-center">
+            <FileText size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.invoices}</span>
+            <p className="text-2xs text-text-tertiary">Invoices</p>
+          </div>
+          <div className="text-center">
+            <CreditCard size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.payments}</span>
+            <p className="text-2xs text-text-tertiary">Payments</p>
+          </div>
         </div>
-        <div className="text-center">
-          <FileText size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.invoices}</span>
-          <p className="text-2xs text-text-tertiary">Invoices</p>
-        </div>
-        <div className="text-center">
-          <CreditCard size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.payments}</span>
-          <p className="text-2xs text-text-tertiary">Payments</p>
-        </div>
-      </div>
-      {syncing && (
+      )}
+      {syncing && !stalled && (
         <div className="mt-3 h-1 bg-surface-3 rounded-full overflow-hidden">
           <div className="h-full bg-accent rounded-full animate-pulse" style={{ width: '60%' }} />
         </div>
@@ -158,16 +165,23 @@ function StepConnect({ tenantId, onComplete }) {
   const [stripeConnected, setStripeConnected] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncCounts, setSyncCounts] = useState({ total: 0, customers: 0, invoices: 0, payments: 0 });
+  const [syncStalled, setSyncStalled] = useState(false);
 
   // API key input state
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Gmail state
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailError, setGmailError] = useState(null);
+
   // Check existing connections on mount
   useEffect(() => {
     apiGet('/v1/integrations/status', tenantId).then(data => {
       if (data.integrations?.stripe?.connected) setStripeConnected(true);
+      if (data.integrations?.gmail?.connected) setGmailConnected(true);
     }).catch(() => {});
   }, [tenantId]);
 
@@ -175,10 +189,13 @@ function StepConnect({ tenantId, onComplete }) {
   useEffect(() => {
     if (!stripeConnected) return;
     setSyncing(true);
+    setSyncStalled(false);
+    let consecutiveErrors = 0;
 
     const interval = setInterval(async () => {
       try {
         const stats = await apiGet('/v1/world/stats', tenantId);
+        consecutiveErrors = 0;
         const countsByType = stats.countsByObjectType || {};
         setSyncCounts({
           total: stats.objectCount || 0,
@@ -187,7 +204,10 @@ function StepConnect({ tenantId, onComplete }) {
           payments: countsByType.payment || 0,
         });
         if ((stats.objectCount || 0) > 0) setSyncing(false);
-      } catch {}
+      } catch {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) setSyncStalled(true);
+      }
     }, 3000);
 
     return () => clearInterval(interval);
@@ -200,12 +220,19 @@ function StepConnect({ tenantId, onComplete }) {
     }
     setConnecting(true);
     setError(null);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 15000);
+
     try {
       const res = await fetch(`${API_BASE}/v1/integrations/stripe/key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
         credentials: 'include',
         body: JSON.stringify({ apiKey }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data.ok) {
@@ -217,12 +244,81 @@ function StepConnect({ tenantId, onComplete }) {
           credentials: 'include',
         }).catch(() => {}); // Fire-and-forget, sync progress polling handles UI
       } else {
-        setError(data.error || 'Connection failed');
+        setError(data.error || 'Connection failed. Check your API key.');
       }
-    } catch {
-      setError('Network error. Try again.');
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setError('Request timed out after 15 seconds. Check your connection and try again.');
+      } else {
+        setError('Network error. Check your connection and try again.');
+      }
     } finally {
+      clearTimeout(timeout);
       setConnecting(false);
+    }
+  }
+
+  async function handleGmailConnect() {
+    setGmailError(null);
+    setGmailConnecting(true);
+
+    const oauthUrl = `${API_BASE}/v1/integrations/gmail/authorize?tenantId=${encodeURIComponent(tenantId)}`;
+    let popup;
+    try {
+      popup = window.open(oauthUrl, 'nooterra_oauth', 'width=520,height=700,popup=yes');
+    } catch {
+      popup = null;
+    }
+
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      setGmailError('Popup was blocked. Please allow popups for this site and try again.');
+      setGmailConnecting(false);
+      return;
+    }
+
+    // Wait for OAuth result via message event, timeout after 30s
+    const resultPromise = new Promise((resolve, reject) => {
+      const onMessage = (e) => {
+        if (e.data?.type === 'nooterra_oauth_success' && e.data?.provider === 'gmail') {
+          window.removeEventListener('message', onMessage);
+          resolve(true);
+        } else if (e.data?.type === 'nooterra_oauth_error' && e.data?.provider === 'gmail') {
+          window.removeEventListener('message', onMessage);
+          reject(new Error(e.data.error || 'Gmail authorization failed'));
+        }
+      };
+      window.addEventListener('message', onMessage);
+
+      // Poll for popup close as fallback
+      const pollClosed = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(pollClosed);
+          window.removeEventListener('message', onMessage);
+          // Check connection status to see if it succeeded anyway
+          apiGet('/v1/integrations/status', tenantId)
+            .then(data => {
+              if (data.integrations?.gmail?.connected) resolve(true);
+              else reject(new Error('Gmail authorization was not completed'));
+            })
+            .catch(() => reject(new Error('Gmail authorization was not completed')));
+        }
+      }, 500);
+
+      setTimeout(() => {
+        clearInterval(pollClosed);
+        window.removeEventListener('message', onMessage);
+        if (!popup.closed) popup.close();
+        reject(new Error('Gmail connection timed out after 30 seconds. Try again.'));
+      }, 30000);
+    });
+
+    try {
+      await resultPromise;
+      setGmailConnected(true);
+    } catch (err) {
+      setGmailError(err.message || 'Gmail connection failed');
+    } finally {
+      setGmailConnecting(false);
     }
   }
 
@@ -258,16 +354,37 @@ function StepConnect({ tenantId, onComplete }) {
                 Collection emails will be sent from your own email address for better deliverability.
                 Without this, emails are sent from nooterra.ai and may go to spam.
               </p>
-              <button
-                onClick={() => {
-                  const oauthUrl = `${API_BASE}/v1/integrations/gmail/authorize?tenantId=${encodeURIComponent(tenantId)}`;
-                  const popup = window.open(oauthUrl, 'nooterra_oauth', 'width=520,height=700,popup=yes');
-                  if (!popup) window.location.href = oauthUrl;
-                }}
-                className="px-3 py-1.5 bg-surface-2 border border-edge rounded text-xs font-medium text-text-secondary hover:bg-surface-3 transition-colors"
-              >
-                Connect Gmail
-              </button>
+              {gmailConnected ? (
+                <div className="flex items-center gap-2 text-xs text-status-healthy">
+                  <Check size={12} />
+                  <span>Gmail connected</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={handleGmailConnect}
+                    disabled={gmailConnecting}
+                    className="px-3 py-1.5 bg-surface-2 border border-edge rounded text-xs font-medium text-text-secondary hover:bg-surface-3 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {gmailConnecting && <Loader2 size={11} className="animate-spin" />}
+                    {gmailConnecting ? 'Connecting...' : 'Connect Gmail'}
+                  </button>
+                  {gmailError && (
+                    <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2 mt-2">
+                      <span className="shrink-0 mt-0.5">!</span>
+                      <div>
+                        <p>{gmailError}</p>
+                        <button
+                          onClick={handleGmailConnect}
+                          className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </>
         ) : (
@@ -293,7 +410,20 @@ function StepConnect({ tenantId, onComplete }) {
               <p className="text-2xs text-text-tertiary">
                 Find this in your Stripe Dashboard &rarr; Developers &rarr; API keys. We encrypt and store it securely.
               </p>
-              {error && <p className="text-xs text-status-blocked">{error}</p>}
+              {error && (
+                <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">!</span>
+                  <div>
+                    <p>{error}</p>
+                    <button
+                      onClick={handleConnect}
+                      className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              )}
               <button
                 onClick={handleConnect}
                 disabled={connecting || !apiKey}
@@ -313,7 +443,7 @@ function StepConnect({ tenantId, onComplete }) {
         </div>
       </div>
 
-      <SyncProgress syncing={syncing} counts={syncCounts} />
+      <SyncProgress syncing={syncing} counts={syncCounts} stalled={syncStalled} />
 
       <button
         onClick={onComplete}
@@ -499,11 +629,20 @@ function StepLaunch({ tenantId, onComplete }) {
         </div>
       ) : (
         <>
-          {launchError ? (
-            <div className="mb-4 rounded-lg border border-status-blocked/30 bg-status-blocked-muted px-3 py-2 text-xs text-status-blocked">
-              {launchError}
+          {launchError && (
+            <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2 mb-4">
+              <span className="shrink-0 mt-0.5">!</span>
+              <div>
+                <p>{launchError}</p>
+                <button
+                  onClick={handleLaunch}
+                  className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                >
+                  Try again
+                </button>
+              </div>
             </div>
-          ) : null}
+          )}
           <button
             onClick={handleLaunch}
             disabled={launching}
