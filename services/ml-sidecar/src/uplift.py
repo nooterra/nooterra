@@ -17,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from .training import build_invoice_feature_map, _to_float, _parse_datetime
-from .conformal import compute_intervals_from_residuals
+from .conformal import compute_intervals_from_residuals  # noqa: F401 — used for reference
 
 
 @dataclass
@@ -85,8 +85,9 @@ def fit_uplift_model(
         ac = row.get("action_class", "")
         if decision == "strategic_hold" or ac == "strategic.hold":
             control_rows.append(row)
-        elif decision == "intervention" or ac == action_class:
+        elif ac == action_class:  # STRICT: only this action class in treatment
             treatment_rows.append(row)
+        # Rows with other action classes are DROPPED — not treatment, not control
 
     if len(treatment_rows) < min_treatment or len(control_rows) < min_control:
         return None
@@ -121,7 +122,6 @@ def fit_uplift_model(
     ])
     control_estimator.fit(X_ctrl, y_ctrl)
 
-    X_all = to_matrix(treatment_features + control_features)
     treat_preds = treatment_estimator.predict_proba(X_treat)[:, 1]
     ctrl_preds_on_treat = control_estimator.predict_proba(X_treat)[:, 1]
     predicted_lifts_treat = treat_preds - ctrl_preds_on_treat

@@ -989,23 +989,25 @@ export async function exportGradedOutcomes(
         ao.objective_score,
         ao.created_at AS action_at,
         ga.parameters,
-        aeo.field,
-        aeo.current_value AS predicted_baseline,
-        aeo.predicted_value,
-        aeo.observed_value,
-        aeo.delta_expected,
-        aeo.delta_observed,
-        aeo.matched AS effect_matched,
-        aeo.observed_at
+        -- Aggregate effect observations to one row per action
+        MAX(CASE WHEN aeo.field = 'paymentProbability7d' THEN aeo.predicted_value END) AS predicted_payment_prob,
+        MAX(CASE WHEN aeo.field = 'paymentProbability7d' THEN aeo.observed_value END) AS observed_payment_prob,
+        AVG(aeo.delta_expected)::float8 AS avg_delta_expected,
+        AVG(aeo.delta_observed)::float8 AS avg_delta_observed,
+        BOOL_AND(aeo.matched)::boolean AS all_effects_matched,
+        MAX(aeo.observed_at) AS last_observed_at
       FROM world_action_outcomes ao
-      JOIN world_action_effect_observations aeo
+      LEFT JOIN world_action_effect_observations aeo
         ON aeo.action_id = ao.action_id AND aeo.tenant_id = ao.tenant_id
+        AND aeo.observation_status = 'observed'
       LEFT JOIN gateway_actions ga
         ON ga.id = ao.action_id AND ga.tenant_id = ao.tenant_id
       WHERE ao.tenant_id = $1
         AND ao.observation_status = 'observed'
-        AND aeo.observation_status = 'observed'
         AND ao.updated_at >= $2
+      GROUP BY ao.action_id, ao.tenant_id, ao.action_class, ao.target_object_id,
+               ao.target_object_type, ao.objective_achieved, ao.objective_score,
+               ao.created_at, ga.parameters
       ORDER BY ao.created_at ASC
       LIMIT $3`,
     [tenantId, since.toISOString(), limit],
@@ -1017,23 +1019,23 @@ export async function exportGradedOutcomes(
       actionId: String(row.action_id),
       tenantId: String(row.tenant_id),
       actionClass: String(row.action_class),
+      targetObjectId: String(row.target_object_id),
+      targetObjectType: String(row.target_object_type),
       decisionType: String(row.action_class) === 'strategic.hold'
         ? 'strategic_hold'
         : 'intervention',
-      targetObjectId: String(row.target_object_id),
-      targetObjectType: String(row.target_object_type),
       variantId: params.recommendedVariantId ?? null,
       invoiceAmountCents: Number(params.amountCents ?? 0),
       daysOverdueAtAction: Number(params.daysOverdue ?? 0),
-      predictedPaymentProb7d: row.field === 'paymentProbability7d' ? Number(row.predicted_value) : null,
-      observedPaymentProb7d: row.field === 'paymentProbability7d' && row.observed_value != null ? Number(row.observed_value) : null,
-      deltaExpected: Number(row.delta_expected ?? 0),
-      deltaObserved: row.delta_observed != null ? Number(row.delta_observed) : null,
-      effectMatched: row.effect_matched == null ? null : Boolean(row.effect_matched),
+      predictedPaymentProb7d: row.predicted_payment_prob != null ? Number(row.predicted_payment_prob) : null,
+      observedPaymentProb7d: row.observed_payment_prob != null ? Number(row.observed_payment_prob) : null,
+      deltaExpected: Number(row.avg_delta_expected ?? 0),
+      deltaObserved: row.avg_delta_observed != null ? Number(row.avg_delta_observed) : null,
+      effectMatched: row.all_effects_matched == null ? null : Boolean(row.all_effects_matched),
       objectiveAchieved: row.objective_achieved == null ? null : Boolean(row.objective_achieved),
       objectiveScore: row.objective_score == null ? null : Number(row.objective_score),
       actionAt: new Date(row.action_at).toISOString(),
-      observedAt: row.observed_at ? new Date(row.observed_at).toISOString() : null,
+      observedAt: row.last_observed_at ? new Date(row.last_observed_at).toISOString() : null,
     };
   });
 }
