@@ -6,6 +6,11 @@
 import type pg from 'pg';
 import { parseCron, cronMatchesDate, extractCronExpr } from './cron.js';
 import { pollApprovedActions } from './approval-resume.js';
+import {
+  listTenantsWithDueActionOutcomes,
+  runActionOutcomeWatcher,
+} from '../../src/eval/effect-tracker.ts';
+import { runWeeklyRetraining } from './retraining-job.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +27,55 @@ export interface SchedulerDeps {
   executeWorker: (worker: any, executionId: string, triggerType: string, resumeContext?: any) => Promise<void>;
   generateId: (prefix?: string) => string;
   isShuttingDown: () => boolean;
+}
+
+export async function pollWorldOutcomeWatchers(deps: SchedulerDeps) {
+  const { pool, log } = deps;
+  const asOf = new Date();
+  const tenantIds = await listTenantsWithDueActionOutcomes(pool, asOf, 10);
+  let processed = 0;
+
+  for (const tenantId of tenantIds) {
+    try {
+      const result = await runActionOutcomeWatcher(pool, {
+        tenantId,
+        asOf,
+        limit: 25,
+      });
+      processed += result.processed.length;
+    } catch (err: any) {
+      log('error', `Outcome watcher poll failed for tenant ${tenantId}: ${err.message}`);
+    }
+  }
+
+  if (processed > 0) {
+    log('info', `Observed ${processed} pending world-action outcome(s)`);
+  }
+}
+
+export async function pollWeeklyRetraining(deps: SchedulerDeps): Promise<void> {
+  const { pool, log } = deps;
+
+  // Get all tenants with observed outcomes (candidates for retraining)
+  const tenants = await pool.query(`
+    SELECT DISTINCT tenant_id FROM world_action_outcomes
+    WHERE observation_status = 'observed'
+    LIMIT 50
+  `);
+
+  for (const row of tenants.rows) {
+    const tenantId = String(row.tenant_id);
+    try {
+      const result = await runWeeklyRetraining(pool, tenantId);
+      if (result.skipped) {
+        // Idempotent: already retrained recently, no log spam
+      } else {
+        log('info', `Retrained for ${tenantId}: prob=${result.probabilityModel.status}, uplift=${result.upliftModel.status}, graded=${result.gradedOutcomesExported}`);
+      }
+    } catch (err: any) {
+      log('error', `Retraining failed for ${tenantId}: ${err.message}`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +230,18 @@ export async function pollCycle(deps: SchedulerDeps): Promise<void> {
   }
 
   try {
+    try {
+      await pollWorldOutcomeWatchers(deps);
+    } catch (watchErr: any) {
+      log('warn', `World outcome watcher poll failed: ${watchErr.message}`);
+    }
+
+    try {
+      await pollWeeklyRetraining(deps);
+    } catch (retrainErr: any) {
+      log('warn', `Weekly retraining poll failed: ${retrainErr.message}`);
+    }
+
     const available = maxConcurrent - getActiveExecutions();
     if (available <= 0) return;
 
