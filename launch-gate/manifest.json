@@ -4,9 +4,9 @@
   "constraint": "Single domain, single data source, single send path, single operator, single approval workflow",
   "p0": [
     { "id": 1,  "area": "data",      "item": "Backfill completes without duplicates for 200+ invoices",                    "evidence": "automated", "test": "test/gate-backfill-idempotency.test.js",    "status": "pending" },
-    { "id": 2,  "area": "data",      "item": "Repeated backfill produces identical world state",                            "evidence": "automated", "test": "test/gate-backfill-idempotency.test.js",    "status": "pending" },
-    { "id": 3,  "area": "data",      "item": "Webhooks during/after backfill do not create duplicates",                     "evidence": "automated", "test": "test/gate-webhook-backfill-overlap.test.js", "status": "pending" },
-    { "id": 4,  "area": "data",      "item": "Reconciliation report matches Stripe counts vs imported objects",             "evidence": "automated", "test": "test/reconciliation.test.js",               "status": "pending" },
+    { "id": 2,  "area": "data",      "item": "Repeated backfill produces identical world state",                            "evidence": "automated", "test": "test/backfill-idempotency.test.js",         "status": "pass" },
+    { "id": 3,  "area": "data",      "item": "Webhooks during/after backfill do not create duplicates",                     "evidence": "automated", "test": "test/backfill-idempotency.test.js",         "status": "pass" },
+    { "id": 4,  "area": "data",      "item": "Reconciliation report matches Stripe counts vs imported objects",             "evidence": "automated", "test": "test/reconciliation.test.js",               "status": "pass" },
     { "id": 5,  "area": "auth",      "item": "No write route callable without authenticated session",                       "evidence": "automated", "test": "test/gate-auth-sweep.test.js",              "status": "pending" },
     { "id": 6,  "area": "auth",      "item": "Tenant A cannot access Tenant B data",                                       "evidence": "automated", "test": "test/gate-tenant-isolation.test.js",        "status": "pending" },
     { "id": 7,  "area": "auth",      "item": "Stripe keys fail closed if encryption unavailable",                           "evidence": "automated", "test": "test/runtime-crypto-utils.test.js",         "status": "pass" },
@@ -25,7 +25,7 @@
     { "id": 20, "area": "failure",   "item": "Sidecar down: degrades to rule-based, does not block operator",               "evidence": "automated", "test": "test/gate-sidecar-degradation.test.js",     "status": "pending" },
     { "id": 21, "area": "failure",   "item": "Invalid migration state: fails closed, blocks writes",                        "evidence": "automated", "test": "test/gate-migration-safety.test.js",        "status": "pending" },
     { "id": 22, "area": "onboard",   "item": "Sign-up to ranked overdue invoices in under 5 minutes",                       "evidence": "manual",    "test": null,                                        "status": "pending" },
-    { "id": 23, "area": "ops",       "item": "Global execution kill switch halts all execution immediately",                "evidence": "drill",     "test": "test/kill-switch.test.js",                  "status": "pending" }
+    { "id": 23, "area": "ops",       "item": "Global execution kill switch halts all execution immediately",                "evidence": "drill",     "test": "test/kill-switch.test.js",                  "status": "pass" }
   ],
   "p1": [
     { "id": 24, "area": "onboard",   "item": "Empty state, invalid key, partial backfill handled clearly",                  "evidence": "manual",    "test": null,                                        "status": "pending" },
