@@ -10,6 +10,7 @@
 import type pg from 'pg';
 import { initTracing, withSpan, addSpanAttributes } from './lib/tracing.js';
 import { chatCompletion, listModels } from './openrouter.js';
+import { getPlanLimits } from './billing.js';
 import { chatCompletionForWorker } from './providers/index.js';
 import { decryptCredential } from './crypto-utils.js';
 import { executeTool, getAvailableTools } from './integrations.js';
@@ -50,6 +51,11 @@ import {
   resolveCurrentVerificationPolicy,
   shouldWorkerRun,
 } from './execution-policy.ts';
+import { appendEvent } from '../../src/ledger/event-store.ts';
+import { assembleContext } from '../../src/objects/graph.ts';
+import { submit as gatewaySubmit } from '../../src/gateway/gateway.ts';
+import { COLLECTIONS_TOOLS, createCollectionsAgent } from '../../src/agents/templates/ar-collections.ts';
+import { generateReactivePlan } from '../../src/planner/planner.ts';
 
 // World Runtime bridge — feeds data into the new event ledger, object graph,
 // state estimator, and evaluation engine alongside the existing execution.
@@ -72,6 +78,419 @@ export function enableBridge() {
 let pool: pg.Pool;
 let log: (level: string, msg: string) => void;
 let generateId: (prefix?: string) => string;
+
+const COLLECTIONS_WORLD_RUNTIME_TOOLS = COLLECTIONS_TOOLS.map(({ function: fn }) => ({
+  name: fn.name,
+  description: fn.description,
+  parameters: fn.parameters,
+}));
+const MIN_BALANCE_THRESHOLD = parseFloat(process.env.MIN_BALANCE_THRESHOLD || '0.10');
+const TENANT_MAX_PER_MINUTE = parseInt(process.env.TENANT_MAX_PER_MINUTE || '10', 10);
+const COLLECTIONS_MAX_ACTIONS_PER_EXECUTION = Math.max(
+  1,
+  Number.parseInt(process.env.COLLECTIONS_MAX_ACTIONS_PER_EXECUTION || '5', 10) || 5,
+);
+
+function mapCollectionsToolToActionClass(toolName) {
+  switch (toolName) {
+    case 'send_collection_email':
+      return 'communicate.email';
+    case 'create_followup_task':
+      return 'task.create';
+    case 'log_collection_note':
+      return 'data.write';
+    default:
+      return `legacy.${String(toolName || 'unknown').toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
+  }
+}
+
+function buildCollectionsPrompt(planAction, context) {
+  const relatedSummary = (context.related || []).slice(0, 5).map(({ relationship, object }) => ({
+    relationship: relationship.type,
+    objectId: object.id,
+    objectType: object.type,
+    state: object.state,
+    estimated: object.estimated,
+  }));
+  const eventSummary = (context.recentEvents || []).slice(0, 10).map((event) => ({
+    id: event.id,
+    type: event.type,
+    timestamp: event.timestamp instanceof Date ? event.timestamp.toISOString() : event.timestamp,
+    payload: event.payload,
+  }));
+
+  return [
+    'You are running inside Nooterra’s Stripe-first AR collections world runtime.',
+    'You are in shadow mode. Propose the next governed action using tools, but assume nothing will send automatically.',
+    `Planner recommendation: ${planAction.description}`,
+    `Planner action class: ${planAction.actionClass}`,
+    `Planner priority: ${Number(planAction.priority || 0).toFixed(2)}`,
+    `Planner reasoning: ${(planAction.reasoning || []).join(' | ') || 'none provided'}`,
+    `Target invoice observed state: ${JSON.stringify(context.target.state || {})}`,
+    `Target invoice estimated state: ${JSON.stringify(context.target.estimated || {})}`,
+    `Related business context: ${JSON.stringify(relatedSummary)}`,
+    `Recent event history: ${JSON.stringify(eventSummary)}`,
+    'If dispute, complaint, or high-risk signals exist, create a follow-up task instead of sending email.',
+    'If you choose email, make it specific, professional, empathetic, and grounded in the invoice details.',
+  ].join('\n\n');
+}
+
+function buildCollectionsEvidence(worker, planAction, toolName, context) {
+  const relatedIds = (context.related || []).slice(0, 5).map(({ object }) => object.id);
+  return {
+    policyClauses: [
+      'Stripe-first governed AR collections runtime',
+      ...(planAction.reasoning || []).slice(0, 4),
+    ],
+    factsReliedOn: [planAction.targetObjectId, ...relatedIds],
+    toolsUsed: [toolName, 'world.planner', 'world.object_graph'],
+    uncertaintyDeclared: planAction.uncertainty?.composite
+      ?? Math.max(0.05, Math.min(0.95, 1 - Number(planAction.priority || 0))),
+    planner: {
+      recommendedVariantId: planAction.parameters?.recommendedVariantId,
+      explorationMode: planAction.explorationMode ?? null,
+      explorationBaselineVariantId: planAction.explorationBaselineVariantId ?? null,
+      sequenceScore: planAction.sequenceScore ?? null,
+      sequencePlan: planAction.sequencePlan ?? [],
+    },
+    authorityChain: [worker.id],
+  };
+}
+
+async function appendCollectionsGatewayEvent({
+  pool,
+  worker,
+  executionId,
+  plannedAction,
+  gatewayResult,
+  toolName,
+}) {
+  const type = gatewayResult.status === 'escrowed'
+    ? 'agent.action.escrowed'
+    : gatewayResult.status === 'denied'
+      ? 'agent.action.blocked'
+      : 'agent.action.executed';
+
+  await appendEvent(pool, {
+    tenantId: worker.tenant_id,
+    type,
+    timestamp: new Date(),
+    sourceType: 'agent',
+    sourceId: worker.id,
+    objectRefs: plannedAction.targetObjectId
+      ? [{ objectId: plannedAction.targetObjectId, objectType: plannedAction.targetObjectType || 'invoice', role: 'target' }]
+      : [],
+    payload: {
+      executionId,
+      actionId: gatewayResult.actionId,
+      actionClass: plannedAction.actionClass,
+      tool: toolName,
+      decision: gatewayResult.decision,
+      status: gatewayResult.status,
+      executed: gatewayResult.executed,
+      reason: gatewayResult.reason,
+      shadowMode: true,
+    },
+    provenance: {
+      sourceSystem: 'world-runtime',
+      sourceId: executionId,
+      extractionMethod: 'api',
+      extractionConfidence: 1.0,
+    },
+    traceId: plannedAction.id,
+  });
+}
+
+async function executeCollectionsWorldRuntimeShadow({
+  worker,
+  charter,
+  executionId,
+  activity,
+  addActivity,
+  startedAt,
+  tracer,
+}) {
+  const verificationPlan = charter.verificationPlan || createDefaultVerificationPlan();
+  const plan = await generateReactivePlan(pool, worker.tenant_id);
+  const plannedActions = (plan.actions || [])
+    .filter((action) => action.actionClass === 'communicate.email' || action.actionClass === 'task.create')
+    .slice(0, COLLECTIONS_MAX_ACTIONS_PER_EXECUTION);
+
+  addActivity('planner', plan.summary || `Generated ${plannedActions.length} collections action(s)`);
+
+  if (plannedActions.length === 0) {
+    const finalResponse = 'No overdue invoices currently require collections outreach.';
+    const receipt = buildExecutionReceipt({
+      worker,
+      executionId,
+      finalResponse,
+      totalPromptTokens: 0,
+      totalCompletionTokens: 0,
+      totalCost: 0,
+      startedAt,
+      rounds: 1,
+      toolCallCount: 0,
+      toolResults: [],
+      verificationPlan,
+    });
+
+    await tracer.flush().catch(() => {});
+    await finalizeExecution(executionId, {
+      status: 'shadow_completed',
+      completedAt: new Date(),
+      model: worker.model,
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: 0,
+      rounds: 1,
+      toolCalls: 0,
+      result: finalResponse,
+      activity,
+      receipt,
+    }, worker.tenant_id, 0);
+    await pool.query(`
+      UPDATE workers SET
+        stats = jsonb_set(
+          jsonb_set(
+            jsonb_set(stats, '{totalRuns}', to_jsonb((stats->>'totalRuns')::int + 1)),
+            '{successfulRuns}',
+            to_jsonb((stats->>'successfulRuns')::int + 1)
+          ),
+          '{lastRunAt}', to_jsonb($2::text)
+        ),
+        updated_at = now()
+      WHERE id = $1
+    `, [worker.id, new Date().toISOString()]);
+    log('info', `Collections world runtime ${executionId} completed in shadow mode for worker ${worker.name} (no actions required)`);
+    return;
+  }
+
+  const agent = {
+    ...createCollectionsAgent(worker.tenant_id, worker.id),
+    id: worker.id,
+    tenantId: worker.tenant_id,
+    name: worker.name,
+    model: worker.model,
+  };
+
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalCost = 0;
+  let toolCallCount = 0;
+  const toolResults = [];
+  const responseParts = [];
+
+  for (let index = 0; index < plannedActions.length; index += 1) {
+    const plannedAction = plannedActions[index];
+    addActivity('collections_candidate', plannedAction.description);
+    tracer.trace('collections_candidate', {
+      executionId,
+      targetObjectId: plannedAction.targetObjectId,
+      actionClass: plannedAction.actionClass,
+      priority: plannedAction.priority,
+    });
+
+    const context = await assembleContext(pool, plannedAction.targetObjectId, 1);
+    if (!context || context.target.tenantId !== worker.tenant_id) {
+      addActivity('collections_skip', `Missing company-state context for ${plannedAction.targetObjectId}`);
+      toolResults.push({
+        round: index + 1,
+        name: 'collections_context_lookup',
+        args: { targetObjectId: plannedAction.targetObjectId },
+        success: false,
+        error: 'Missing company-state context',
+        gatewayStatus: 'failed',
+      });
+      continue;
+    }
+
+    const llmResult = await withSpan('llm.call.collections', {
+      model: worker.model,
+      round: index + 1,
+      'worker.id': worker.id,
+      'execution.id': executionId,
+    }, () => chatCompletionForWorker(worker, {
+      model: agent.model,
+      messages: [
+        {
+          role: 'system',
+          content: `${agent.role}\n\n${agent.domainInstructions}\n\n${agent.playbook}`,
+        },
+        {
+          role: 'user',
+          content: buildCollectionsPrompt(plannedAction, context),
+        },
+      ],
+      tools: COLLECTIONS_WORLD_RUNTIME_TOOLS,
+      maxTokens: charter.maxTokens || 4096,
+      temperature: charter.temperature ?? 0.2,
+    }));
+
+    totalPromptTokens += llmResult.usage?.promptTokens || 0;
+    totalCompletionTokens += llmResult.usage?.completionTokens || 0;
+    totalCost += llmResult.usage?.cost || 0;
+    addActivity(
+      'llm_response',
+      `Collections round ${index + 1}: ${(llmResult.toolCalls || []).length} tool call(s), ${llmResult.usage?.totalTokens || 0} tokens`,
+    );
+    tracer.trace('collections_llm', {
+      round: index + 1,
+      toolCalls: (llmResult.toolCalls || []).length,
+      tokens: llmResult.usage?.totalTokens || 0,
+      cost: llmResult.usage?.cost || 0,
+    });
+
+    if (llmResult.response) {
+      responseParts.push(`Invoice ${plannedAction.targetObjectId}: ${llmResult.response}`);
+    }
+
+    const llmToolCalls = Array.isArray(llmResult.toolCalls) ? llmResult.toolCalls : [];
+    toolCallCount += llmToolCalls.length;
+
+    if (llmToolCalls.length === 0) {
+      addActivity('collections_noop', `No governed action proposed for ${plannedAction.targetObjectId}`);
+      continue;
+    }
+
+    for (const toolCall of llmToolCalls) {
+      const args = typeof toolCall.arguments === 'string'
+        ? safeParseJson(toolCall.arguments, {}) || {}
+        : (toolCall.arguments || {});
+      const toolName = toolCall.name || 'unknown_tool';
+      const gatewayAction = {
+        tenantId: worker.tenant_id,
+        agentId: worker.id,
+        executionId,
+        runtimeTemplateId: 'ar-collections-v1',
+        traceId: plannedAction.id,
+        actionClass: mapCollectionsToolToActionClass(toolName),
+        tool: toolName,
+        parameters: args,
+        targetObjectId: plannedAction.targetObjectId,
+        targetObjectType: plannedAction.targetObjectType,
+        counterpartyId: typeof plannedAction.parameters?.partyId === 'string' ? plannedAction.parameters.partyId : undefined,
+        valueCents: Math.max(1, Number(plannedAction.parameters?.amountCents || 0)),
+        evidence: buildCollectionsEvidence(worker, plannedAction, toolName, context),
+      };
+
+      const gatewayResult = await gatewaySubmit(pool, gatewayAction, {
+        executor: null,
+        escrowThresholdCents: 1,
+      });
+
+      toolResults.push({
+        round: index + 1,
+        name: toolName,
+        args,
+        targetObjectId: plannedAction.targetObjectId,
+        success: gatewayResult.status !== 'denied' && gatewayResult.status !== 'failed',
+        error: gatewayResult.error || (gatewayResult.status === 'denied' ? gatewayResult.reason : null),
+        gatewayStatus: gatewayResult.status,
+        decision: gatewayResult.decision,
+        reason: gatewayResult.reason,
+      });
+
+      addActivity(
+        gatewayResult.status === 'escrowed' ? 'gateway_escrow' : 'gateway_decision',
+        `${toolName}: ${gatewayResult.status} (${gatewayResult.reason})`,
+      );
+      tracer.trace('gateway_submit', {
+        tool: toolName,
+        status: gatewayResult.status,
+        decision: gatewayResult.decision,
+      });
+
+      await appendCollectionsGatewayEvent({
+        pool,
+        worker,
+        executionId,
+        plannedAction,
+        gatewayResult,
+        toolName,
+      }).catch((err) => {
+        log('warn', `Failed to append collections gateway event for ${executionId}: ${err.message}`);
+      });
+    }
+  }
+
+  const finalResponse = (responseParts.join('\n\n') || plan.summary || 'Collections runtime completed without new proposals.').slice(0, 50000);
+  const receipt = buildExecutionReceipt({
+    worker,
+    executionId,
+    finalResponse,
+    totalPromptTokens,
+    totalCompletionTokens,
+    totalCost,
+    startedAt,
+    rounds: plannedActions.length,
+    toolCallCount,
+    toolResults,
+    verificationPlan,
+  });
+
+  await tracer.flush().catch(() => {});
+  await finalizeExecution(executionId, {
+    status: 'shadow_completed',
+    completedAt: new Date(),
+    model: worker.model,
+    tokensIn: totalPromptTokens,
+    tokensOut: totalCompletionTokens,
+    costUsd: totalCost,
+    rounds: plannedActions.length,
+    toolCalls: toolCallCount,
+    result: finalResponse,
+    activity,
+    receipt,
+  }, worker.tenant_id, totalCost);
+
+  await pool.query(`
+    UPDATE workers SET
+      stats = jsonb_set(
+        jsonb_set(
+          jsonb_set(stats, '{totalRuns}', to_jsonb((stats->>'totalRuns')::int + 1)),
+          '{successfulRuns}',
+          to_jsonb((stats->>'successfulRuns')::int + 1)
+        ),
+        '{lastRunAt}', to_jsonb($2::text)
+      ),
+      updated_at = now()
+    WHERE id = $1
+  `, [worker.id, new Date().toISOString()]);
+
+  log('info', `Collections world runtime ${executionId} completed in shadow mode for worker ${worker.name} (${toolCallCount} proposal(s), $${totalCost.toFixed(6)})`);
+
+  if (bridgeEnabled && onExecutionCompleteFn) {
+    try {
+      await onExecutionCompleteFn(pool, {
+        executionId,
+        workerId: worker.id,
+        workerName: worker.name,
+        tenantId: worker.tenant_id,
+        triggerType: 'shadow',
+        status: 'completed',
+        toolCalls: (toolResults || []).map((result) => ({
+          tool: result.name || 'unknown',
+          actionClass: mapCollectionsToolToActionClass(result.name || 'unknown'),
+          status: result.gatewayStatus === 'escrowed'
+            ? 'escrowed'
+            : result.gatewayStatus === 'denied' || result.gatewayStatus === 'failed'
+              ? 'blocked'
+              : 'executed',
+          targetObjectId: result.targetObjectId || result.args?.invoiceId || undefined,
+          targetObjectType: result.targetObjectId || result.args?.invoiceId ? 'invoice' : undefined,
+          error: result.error || undefined,
+        })),
+        result: finalResponse,
+        tokensUsed: totalPromptTokens + totalCompletionTokens,
+        costCents: Math.round(totalCost * 100),
+        durationMs: Date.now() - startedAt.getTime(),
+        receipt,
+      });
+    } catch (bridgeErr) {
+      log('warn', `World Runtime bridge error (non-fatal): ${bridgeErr.message}`);
+    }
+  }
+}
 
 export function initExecutionLoop(deps: {
   pool: pg.Pool;
@@ -185,19 +604,18 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     // Check monthly execution limit for tenant's plan
     try {
       const tierResult = await pool.query('SELECT tier FROM tenant_credits WHERE tenant_id = $1', [worker.tenant_id]);
-      const tier = tierResult.rows[0]?.tier || 'free';
-      const limits = { free: 50, starter: 500, pro: 5000, scale: 25000 };
-      const monthlyLimit = limits[tier] || 50;
+      const { tier, limits } = getPlanLimits(tierResult.rows[0]?.tier || 'sandbox');
+      const monthlyLimit = Number(limits?.maxExecutionsPerMonth);
 
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
       const countResult = await pool.query(
-        `SELECT COUNT(*) as cnt FROM worker_executions WHERE tenant_id = $1 AND started_at >= $2`,
+        `SELECT COUNT(*)::int AS cnt FROM worker_executions WHERE tenant_id = $1 AND started_at >= $2 AND status != 'failed'`,
         [worker.tenant_id, monthStart]
       );
       const monthlyCount = parseInt(countResult.rows[0]?.cnt || 0);
-      if (monthlyCount >= monthlyLimit) {
+      if (Number.isFinite(monthlyLimit) && monthlyLimit >= 0 && monthlyCount >= monthlyLimit) {
         addActivity('error', `Monthly execution limit reached (${monthlyCount}/${monthlyLimit} for ${tier} plan)`);
         await updateExecution(executionId, {
           status: 'budget_exceeded',
@@ -238,14 +656,14 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       [worker.tenant_id]
     );
     if (creditResult.rowCount === 0) {
-      // New tenant — seed with free trial credits ($2.00)
+      // New tenant — seed with sandbox trial credits ($2.00)
       await pool.query(
         `INSERT INTO tenant_credits (tenant_id, balance_usd, total_spent_usd, updated_at)
          VALUES ($1, 2.00, 0, now())
          ON CONFLICT (tenant_id) DO NOTHING`,
         [worker.tenant_id]
       );
-      log('info', `Seeded $2.00 free trial credits for tenant ${worker.tenant_id}`);
+      log('info', `Seeded $2.00 sandbox trial credits for tenant ${worker.tenant_id}`);
     }
     const balance = parseFloat(creditResult.rows[0]?.balance_usd ?? (creditResult.rowCount === 0 ? 2.00 : 0));
     if (balance < MIN_BALANCE_THRESHOLD) {
@@ -310,9 +728,46 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
       log('warn', `Failed to load delegation grant for ${executionId}: ${err.message}`);
     }
 
-    const isShadowMode = worker.shadow === true || worker.status === 'shadow' || triggerType === 'shadow';
+    let executionMetadata = {};
+    try {
+      const executionRow = await pool.query(
+        'SELECT metadata FROM worker_executions WHERE id = $1',
+        [executionId]
+      );
+      executionMetadata = safeParseJson(executionRow.rows[0]?.metadata, {}) || {};
+    } catch (err) {
+      log('warn', `Failed to load execution metadata for ${executionId}: ${err.message}`);
+    }
+    const isShadowMode = worker.shadow === true
+      || worker.status === 'shadow'
+      || triggerType === 'shadow'
+      || executionMetadata?.shadowMode === true;
     if (isShadowMode) {
       addActivity('shadow', 'Running in shadow mode — no real actions will be taken');
+    }
+
+    if (charter?.worldRuntimeTemplateId === 'ar-collections-v1') {
+      if (!isShadowMode) {
+        addActivity('error', 'Collections world runtime is restricted to shadow mode until promotion criteria are met');
+        await updateExecution(executionId, {
+          status: 'failed',
+          completedAt: new Date(),
+          error: 'Collections world runtime must remain in shadow mode',
+          activity,
+        });
+        return;
+      }
+
+      await executeCollectionsWorldRuntimeShadow({
+        worker,
+        charter,
+        executionId,
+        activity,
+        addActivity,
+        startedAt,
+        tracer,
+      });
+      return;
     }
 
     // --- Charter enforcement: prompt injection detection on task prompt ---
@@ -370,17 +825,6 @@ async function executeWorker(worker, executionId, triggerType, resumeContext = n
     if (workerMemory.length > 0) {
       addActivity('memory', `Loaded ${workerMemory.length} memory entries from previous runs`);
       tracer.trace('memory_load', { count: workerMemory.length });
-    }
-
-    let executionMetadata = {};
-    try {
-      const executionRow = await pool.query(
-        'SELECT metadata FROM worker_executions WHERE id = $1',
-        [executionId]
-      );
-      executionMetadata = safeParseJson(executionRow.rows[0]?.metadata, {}) || {};
-    } catch (err) {
-      log('warn', `Failed to load execution metadata for ${executionId}: ${err.message}`);
     }
     const workerRuntimePolicyRecord = await getWorkerRuntimePolicy(pool, worker.tenant_id, worker.id, { fresh: true });
     const metadataExecutionPolicy = buildMetadataExecutionPolicy(executionMetadata);
@@ -1585,11 +2029,21 @@ async function finalizeExecution(executionId, data, tenantId, costUsd) {
 
     await client.query(`UPDATE worker_executions SET ${sets.join(', ')} WHERE id = $1`, values);
 
-    // Deduct credits if applicable
+    // Deduct credits atomically — only deducts if sufficient balance exists
     if (costUsd > 0) {
-      await client.query(`UPDATE tenant_credits SET balance_usd = balance_usd - $2, total_spent_usd = total_spent_usd + $2, updated_at = now() WHERE tenant_id = $1`, [tenantId, costUsd]);
-      await client.query(`INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, execution_id, created_at) VALUES ($1, $2, $3, 'execution_charge', $4, $5, now())`,
-        [generateId('txn'), tenantId, -costUsd, `Worker execution charge: $${costUsd.toFixed(6)}`, executionId]);
+      await client.query(`
+        WITH deduction AS (
+          UPDATE tenant_credits
+          SET balance_usd = balance_usd - $2,
+              total_spent_usd = total_spent_usd + $2,
+              updated_at = now()
+          WHERE tenant_id = $1 AND balance_usd >= $2
+          RETURNING balance_usd
+        )
+        INSERT INTO credit_transactions (id, tenant_id, amount_usd, type, description, execution_id, created_at)
+        SELECT $3, $1, $4, 'execution_charge', $5, $6, now()
+        FROM deduction
+      `, [tenantId, costUsd, generateId('txn'), -costUsd, `Worker execution charge: $${costUsd.toFixed(6)}`, executionId]);
     }
 
     await client.query('COMMIT');

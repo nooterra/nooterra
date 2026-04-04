@@ -1,9 +1,58 @@
 /** Stripe Billing — subscriptions + credit top-ups via Stripe Checkout (raw fetch, no SDK). */
 import crypto from 'node:crypto';
+import {
+  WORLD_BILLING_PLAN_DEFS,
+  isCheckoutEnabledWorldBillingPlan,
+  normalizeWorldBillingPlan,
+} from '../../src/core/world-billing-plans.js';
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const WORLD_MODEL_STRIPE_EVENTS = new Set([
+  'customer.created',
+  'customer.updated',
+  'invoice.created',
+  'invoice.updated',
+  'invoice.paid',
+  'invoice.voided',
+  'invoice.sent',
+  'invoice.finalized',
+  'invoice.payment_failed',
+  'invoice.marked_uncollectible',
+  'payment_intent.succeeded',
+  'payment_intent.payment_failed',
+  'charge.refunded',
+  'charge.dispute.created',
+  'charge.dispute.closed',
+]);
+
+function extractTenantIdFromStripeEvent(event) {
+  const object = event?.data?.object;
+  const metadataTenantId = object?.metadata?.tenant_id || object?.metadata?.tenantId;
+  if (typeof metadataTenantId === 'string' && metadataTenantId.trim()) {
+    return metadataTenantId.trim();
+  }
+  return null;
+}
+
+export async function mirrorStripeEventIntoWorldModel(event, pool, log, options = {}) {
+  if (!WORLD_MODEL_STRIPE_EVENTS.has(event?.type)) return;
+
+  const tenantId = extractTenantIdFromStripeEvent(event);
+  if (!tenantId) {
+    log('warn', `Skipped world-model Stripe ingest for ${event?.type || 'unknown'}: tenant_id metadata missing`);
+    return;
+  }
+
+  try {
+    const sink = options.worldModelSink || (await import('../../src/bridge.js')).onStripeWebhook;
+    const result = await sink(pool, tenantId, event);
+    log('info', `World model ingested Stripe event ${event.type} for tenant ${tenantId}: ${result.eventCount} event(s), ${result.objectCount} object(s)`);
+  } catch (err) {
+    log('error', `World-model Stripe ingest failed for ${event?.type || 'unknown'}: ${err.message}`);
+  }
+}
 
 async function stripeRequest(endpoint, body, method = 'POST') {
   const res = await fetch(`${STRIPE_API}${endpoint}`, {
@@ -32,18 +81,31 @@ async function stripeGet(endpoint) {
 }
 
 const PLANS = {
-  starter: { name: 'Nooterra Starter Monthly', amount: 2900,  recurring: true },  // $29/mo — 3 workers, 500 exec/mo
-  pro:     { name: 'Nooterra Pro Monthly',      amount: 9900,  recurring: true },  // $99/mo — 10 workers, 5000 exec/mo
-  scale:   { name: 'Nooterra Scale Monthly',    amount: 24900, recurring: true },  // $249/mo — unlimited workers, 25000 exec/mo
+  starter: { name: 'Nooterra Starter Monthly', amount: WORLD_BILLING_PLAN_DEFS.starter.subscriptionCents, recurring: true },
+  growth: { name: 'Nooterra Growth Monthly', amount: WORLD_BILLING_PLAN_DEFS.growth.subscriptionCents, recurring: true },
+  finance_ops: { name: 'Nooterra Finance Ops Monthly', amount: WORLD_BILLING_PLAN_DEFS.finance_ops.subscriptionCents, recurring: true },
 };
 
 // Execution limits per plan tier
 export const PLAN_LIMITS = {
-  free:    { maxWorkers: 1,  maxExecutionsPerMonth: 50,   allowedModels: ['google/gemini-2.5-flash'] },
-  starter: { maxWorkers: 3,  maxExecutionsPerMonth: 500,  allowedModels: ['google/gemini-2.5-flash', 'openai/gpt-5.4-mini', 'anthropic/claude-haiku-4.5'] },
-  pro:     { maxWorkers: 10, maxExecutionsPerMonth: 5000, allowedModels: null }, // null = all models
-  scale:   { maxWorkers: -1, maxExecutionsPerMonth: 25000, allowedModels: null }, // -1 = unlimited
+  sandbox: { maxWorkers: 1, maxExecutionsPerMonth: 50, allowedModels: ['google/gemini-2.5-flash'] },
+  starter: { maxWorkers: 3, maxExecutionsPerMonth: 500, allowedModels: ['google/gemini-2.5-flash', 'openai/gpt-5.4-mini', 'anthropic/claude-haiku-4.5'] },
+  growth: { maxWorkers: 10, maxExecutionsPerMonth: 5000, allowedModels: null }, // null = all models
+  finance_ops: { maxWorkers: -1, maxExecutionsPerMonth: 25000, allowedModels: null }, // -1 = unlimited
+  enterprise: { maxWorkers: -1, maxExecutionsPerMonth: -1, allowedModels: null },
 };
+
+export function normalizePlanTier(tier) {
+  return normalizeWorldBillingPlan(tier, { preserveUnknown: true });
+}
+
+export function getPlanLimits(tier) {
+  const normalizedTier = normalizePlanTier(tier);
+  return {
+    tier: normalizedTier,
+    limits: PLAN_LIMITS[normalizedTier] || PLAN_LIMITS.sandbox,
+  };
+}
 const CREDIT_AMOUNTS = {
   5:   { name: 'Nooterra Credits $5',   amount: 500 },
   20:  { name: 'Nooterra Credits $20',  amount: 2000 },
@@ -113,10 +175,13 @@ async function getOrCreateCustomer(tenantId, email, pool) {
 
 /** Create a Stripe Checkout session for a subscription. */
 export async function createCheckoutSession({ tenantId, email, plan, successUrl, cancelUrl }, pool) {
-  if (!PLANS[plan]) throw new Error(`Unknown plan: ${plan}`);
+  const normalizedPlan = normalizePlanTier(plan);
+  if (!isCheckoutEnabledWorldBillingPlan(normalizedPlan) || !PLANS[normalizedPlan]) {
+    throw new Error('Checkout only supports paid plans (starter|growth|finance_ops)');
+  }
 
   const customerId = await getOrCreateCustomer(tenantId, email, pool);
-  const priceId = await ensurePrice(`nooterra_${plan}_monthly`, PLANS[plan]);
+  const priceId = await ensurePrice(`nooterra_${normalizedPlan}_monthly`, PLANS[normalizedPlan]);
 
   const session = await stripeRequest('/checkout/sessions', {
     customer: customerId,
@@ -127,7 +192,10 @@ export async function createCheckoutSession({ tenantId, email, plan, successUrl,
     cancel_url: cancelUrl || 'https://nooterra.ai/dashboard?billing=cancelled',
     'metadata[tenant_id]': tenantId,
     'metadata[type]': 'subscription',
-    'metadata[plan]': plan,
+    'metadata[plan]': normalizedPlan,
+    'subscription_data[metadata][tenant_id]': tenantId,
+    'subscription_data[metadata][type]': 'subscription',
+    'subscription_data[metadata][plan]': normalizedPlan,
   });
 
   return { sessionId: session.id, url: session.url };
@@ -151,14 +219,18 @@ export async function createCreditPurchase({ tenantId, email, amount, successUrl
     'metadata[tenant_id]': tenantId,
     'metadata[type]': 'credits',
     'metadata[amount]': String(amount),
+    'payment_intent_data[metadata][tenant_id]': tenantId,
+    'payment_intent_data[metadata][type]': 'credits',
+    'payment_intent_data[metadata][amount]': String(amount),
   });
 
   return { sessionId: session.id, url: session.url };
 }
 
 /** Handle incoming Stripe webhook events. Needs raw body for signature verification. */
-export async function handleStripeWebhook(rawBody, signatureHeader, pool, log) {
+export async function handleStripeWebhook(rawBody, signatureHeader, pool, log, options = {}) {
   const event = verifyWebhookSignature(rawBody, signatureHeader);
+  await mirrorStripeEventIntoWorldModel(event, pool, log, options);
 
   switch (event.type) {
     case 'checkout.session.completed': {
@@ -167,9 +239,15 @@ export async function handleStripeWebhook(rawBody, signatureHeader, pool, log) {
       if (!tenantId) break;
 
       if (session.metadata.type === 'subscription') {
-        const plan = session.metadata.plan;
+        let plan;
         try {
-          await pool.query(`ALTER TABLE tenant_credits ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'free'`);
+          plan = normalizeWorldBillingPlan(session.metadata.plan);
+        } catch {
+          log('warn', `Skipped runtime billing subscription update for tenant ${tenantId}: invalid plan metadata`);
+          break;
+        }
+        try {
+          await pool.query(`ALTER TABLE tenant_credits ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'sandbox'`);
           await pool.query(`ALTER TABLE tenant_credits ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`);
         } catch { /* ignore */ }
         await pool.query(`
@@ -221,17 +299,17 @@ export async function handleStripeWebhook(rawBody, signatureHeader, pool, log) {
         const tid = result.rows[0]?.tenant_id;
         if (tid) {
           await pool.query(`
-            UPDATE tenant_credits SET tier = 'free', stripe_subscription_id = NULL, updated_at = now()
+            UPDATE tenant_credits SET tier = 'sandbox', stripe_subscription_id = NULL, updated_at = now()
             WHERE tenant_id = $1
           `, [tid]);
-          log('info', `Tenant ${tid} subscription cancelled — downgraded to free`);
+          log('info', `Tenant ${tid} subscription cancelled — downgraded to sandbox`);
         }
       } else {
         await pool.query(`
-          UPDATE tenant_credits SET tier = 'free', stripe_subscription_id = NULL, updated_at = now()
+          UPDATE tenant_credits SET tier = 'sandbox', stripe_subscription_id = NULL, updated_at = now()
           WHERE tenant_id = $1
         `, [tenantId]);
-        log('info', `Tenant ${tenantId} subscription cancelled — downgraded to free`);
+        log('info', `Tenant ${tenantId} subscription cancelled — downgraded to sandbox`);
       }
       break;
     }
@@ -259,11 +337,18 @@ export async function getBillingStatus(tenantId, pool) {
 
   const row = result.rows[0];
   if (!row) {
-    return { tier: 'free', credits: 0, totalSpent: 0, subscription: null };
+    return { tier: 'sandbox', credits: 0, totalSpent: 0, subscription: null };
+  }
+
+  let tier = 'sandbox';
+  try {
+    tier = normalizeWorldBillingPlan(row.tier || 'sandbox');
+  } catch {
+    tier = 'sandbox';
   }
 
   return {
-    tier: row.tier || 'free',
+    tier,
     credits: parseFloat(row.balance_usd) || 0,
     totalSpent: parseFloat(row.total_spent_usd) || 0,
     subscription: row.stripe_subscription_id || null,
