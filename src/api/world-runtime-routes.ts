@@ -24,6 +24,7 @@ import { COLLECTIONS_TOOLS, createCollectionsAgent, createCollectionsGrant } fro
 import { createDefaultArObjectives } from '../domains/ar/objectives.js';
 import { grantAuthority } from '../policy/authority-graph.ts';
 import { normalizeWorkerRuntimePolicyOverrides } from '../../services/runtime/runtime-policy-store.js';
+import { createCollectionsExecutor } from '../../services/runtime/collections-executor.js';
 import { getAuthenticatedTenantId, validateSession } from '../../services/runtime/auth.js';
 import {
   listPromotionProposals,
@@ -2250,7 +2251,9 @@ export async function handleWorldRuntimeRoute(
     }
 
     try {
-      const result = await releaseEscrow(pool, auth.tenantId, actionId, decision, auth.actorId);
+      const result = await releaseEscrow(pool, auth.tenantId, actionId, decision, auth.actorId, {
+        executor: createCollectionsExecutor(),
+      });
       json(res, result);
     } catch (err: any) {
       const message = err?.message || 'Failed to release escrow';

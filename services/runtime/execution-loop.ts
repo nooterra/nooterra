@@ -36,6 +36,7 @@ import { isMetaAgent, executeMetaAgentTool, getMetaAgentTools } from './meta-age
 import { createDelegation, completeDelegation } from './delegation.ts';
 import { createTracer } from './traces.ts';
 import { deliverNotification } from './notifications.js';
+import { createCollectionsExecutor } from './collections-executor.js';
 
 import { buildMessages } from './prompt-builder.ts';
 import { loadWorkerMemory, saveWorkerMemory, parseMemoryEntries } from './memory-store.ts';
@@ -374,7 +375,7 @@ async function executeCollectionsWorldRuntimeShadow({
       };
 
       const gatewayResult = await gatewaySubmit(pool, gatewayAction, {
-        executor: null,
+        executor: createCollectionsExecutor(),
         escrowThresholdCents: 1,
       });
 
