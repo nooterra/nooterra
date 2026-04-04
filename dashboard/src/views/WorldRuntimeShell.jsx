@@ -26,12 +26,12 @@ const ApprovalQueue = lazy(() => import('./ApprovalQueue.jsx'));
 // ---------------------------------------------------------------------------
 
 const NAV_ITEMS = [
-  { key: 'command',     label: 'Command Center', icon: LayoutDashboard, path: '/command' },
-  { key: 'state',       label: 'Company State',  icon: Database,        path: '/state' },
+  { key: 'command',     label: 'Runtime Overview', icon: LayoutDashboard, path: '/command' },
+  { key: 'state',       label: 'Company State',    icon: Database,        path: '/state' },
   { key: 'predictions', label: 'Predictions',     icon: TrendingUp,      path: '/predictions' },
   { key: 'autonomy',    label: 'Autonomy Map',    icon: Grid3x3,         path: '/autonomy' },
-  { key: 'policies',    label: 'Policies',         icon: Shield,          path: '/policies' },
-  { key: 'queue',       label: 'Approvals',        icon: CheckSquare,     path: '/queue', badge: 2 },
+  { key: 'policies',    label: 'Policy Runtime',   icon: Shield,          path: '/policies' },
+  { key: 'queue',       label: 'Action Gateway',   icon: CheckSquare,     path: '/queue' },
 ];
 
 const VIEW_MAP = {
@@ -123,7 +123,7 @@ export default function WorldRuntimeShell({ initialView }) {
   return (
     <div className="flex h-screen bg-surface-0 text-text-primary overflow-hidden">
       {/* ─── Sidebar ─── */}
-      <aside className={`flex-shrink-0 flex flex-col border-r border-edge bg-surface-1 transition-all duration-200 ${
+      <aside className={`flex-shrink-0 flex flex-col border-r border-edge bg-surface-1 transition-all duration-300 ease-in-out ${
         collapsed ? 'w-14' : 'w-52'
       }`}>
         {/* Logo */}
@@ -146,14 +146,18 @@ export default function WorldRuntimeShell({ initialView }) {
               <button
                 key={key}
                 onClick={() => navigate(key)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded transition-colors text-left group relative
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded transition-all duration-150 text-left group relative
                   ${isActive
                     ? 'bg-surface-3 text-text-primary'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-2'
                   }`}
                 title={collapsed ? label : undefined}
               >
-                <Icon size={16} className={`flex-shrink-0 ${isActive ? 'text-accent' : ''}`} />
+                {/* Active left-border accent */}
+                <span className={`absolute left-0 top-1 bottom-1 w-0.5 rounded-full transition-all duration-150 ${
+                  isActive ? 'bg-accent opacity-100' : 'opacity-0'
+                }`} />
+                <Icon size={16} className={`flex-shrink-0 transition-colors duration-150 ${isActive ? 'text-accent' : ''}`} />
                 {!collapsed && (
                   <>
                     <span className="text-sm truncate">{label}</span>
@@ -229,7 +233,9 @@ export default function WorldRuntimeShell({ initialView }) {
               </div>
             </div>
           }>
-            <ActiveView />
+            <div key={activeKey} className="h-full animate-in fade-in duration-150">
+              <ActiveView />
+            </div>
           </Suspense>
         </main>
       </div>
