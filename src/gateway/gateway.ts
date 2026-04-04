@@ -15,6 +15,7 @@
 
 import type pg from 'pg';
 import { ulid } from 'ulid';
+import { logger, withLogContext } from '../../services/runtime/lib/log.js';
 import { checkAuthorization, type ProposedAction as AuthAction } from '../policy/authority-graph.js';
 import { appendEvent, type AppendEventInput } from '../ledger/event-store.js';
 import { assembleContext } from '../objects/graph.js';
@@ -183,6 +184,10 @@ export async function submit(
 ): Promise<GatewayResult> {
   const mergedConfig = { ...DEFAULT_CONFIG, ...config };
   const actionId = ulid();
+
+  return withLogContext(
+    { traceId: action.traceId, actionId, tenantId: action.tenantId, actionClass: action.actionClass },
+    async () => {
   const steps: PipelineStep[] = [];
   let currentStatus = 'denied' as GatewayStatus;
   let decision: 'allow' | 'deny' | 'require_approval' = 'deny';
@@ -258,6 +263,7 @@ export async function submit(
       if (authResult.decision === 'require_approval') return { status: 'pass', detail: 'Requires approval' };
       return { status: 'pass', detail: 'Authorized' };
     });
+    logger.info('action.auth_decided', { decision, reason });
     if (!authzOk) { currentStatus = 'denied'; return finalize(); }
 
     // Step 3: Validate
@@ -467,6 +473,7 @@ export async function submit(
 
     // If escrowed, persist and return — human will release later
     if (currentStatus === 'escrowed') {
+      logger.info('action.escrowed', { tool: action.tool });
       return finalize();
     }
 
@@ -491,6 +498,8 @@ export async function submit(
     if (executed) {
       commitRateLimit(action.agentId);
     }
+
+    logger.info('action.executed', { tool: action.tool, success: executed });
 
     if (!execOk) {
       reason = `Execution failed: ${error}`;
@@ -579,6 +588,8 @@ export async function submit(
       uncertainty: uncertaintyProfile,
     };
   }
+  }, // end withLogContext async fn
+  ); // end withLogContext
 }
 
 // ---------------------------------------------------------------------------
@@ -658,85 +669,89 @@ export async function releaseEscrow(
   decidedBy: string,
   config: GatewayConfig = {},
 ): Promise<GatewayResult> {
-  const halted = await isExecutionHalted(pool, tenantId);
-  if (halted) {
-    return {
-      actionId,
-      status: 'denied' as const,
-      decision: 'deny' as const,
-      reason: 'Execution halted by kill switch',
-      executed: false,
-      evidenceBundle: { policyClauses: [], factsReliedOn: [], toolsUsed: [], uncertaintyDeclared: 0, authorityChain: [] },
-      pipelineSteps: [],
-    };
-  }
+  return withLogContext({ tenantId, actionId }, async () => {
+    logger.info('action.approval_decided', { decision, decidedBy });
 
-  const row = await pool.query('SELECT * FROM gateway_actions WHERE id = $1 AND tenant_id = $2', [actionId, tenantId]);
-  if (row.rows.length === 0) throw new Error(`Action not found: ${actionId}`);
+    const halted = await isExecutionHalted(pool, tenantId);
+    if (halted) {
+      return {
+        actionId,
+        status: 'denied' as const,
+        decision: 'deny' as const,
+        reason: 'Execution halted by kill switch',
+        executed: false,
+        evidenceBundle: { policyClauses: [], factsReliedOn: [], toolsUsed: [], uncertaintyDeclared: 0, authorityChain: [] },
+        pipelineSteps: [],
+      };
+    }
 
-  const action = row.rows[0];
-  if (action.status !== 'escrowed') throw new Error(`Action is not escrowed (status: ${action.status})`);
+    const row = await pool.query('SELECT * FROM gateway_actions WHERE id = $1 AND tenant_id = $2', [actionId, tenantId]);
+    if (row.rows.length === 0) throw new Error(`Action not found: ${actionId}`);
 
-  if (decision === 'reject') {
+    const action = row.rows[0];
+    if (action.status !== 'escrowed') throw new Error(`Action is not escrowed (status: ${action.status})`);
+
+    if (decision === 'reject') {
+      await pool.query(
+        `UPDATE gateway_actions SET status = 'denied', auth_decision = 'deny', auth_reason = $2 WHERE id = $1`,
+        [actionId, `Rejected by ${decidedBy}`],
+      );
+      await syncTrackedActionStatus(pool, {
+        tenantId,
+        actionId,
+        actionStatus: 'denied',
+        decision: 'deny',
+      }).catch(() => {});
+      return {
+        actionId,
+        status: 'denied',
+        decision: 'deny',
+        reason: `Rejected by ${decidedBy}`,
+        executed: false,
+        evidenceBundle: action.evidence,
+        pipelineSteps: [],
+      };
+    }
+
+    // Execute
+    let result: unknown;
+    let error: string | undefined;
+    let executed = false;
+
+    if (config.executor) {
+      try {
+        const params = typeof action.parameters === 'string' ? JSON.parse(action.parameters) : action.parameters;
+        result = await config.executor(action.tool, params);
+        executed = true;
+      } catch (err: any) {
+        error = err.message;
+      }
+    }
+
+    const newStatus: GatewayStatus = executed ? 'executed' : 'failed';
     await pool.query(
-      `UPDATE gateway_actions SET status = 'denied', auth_decision = 'deny', auth_reason = $2 WHERE id = $1`,
-      [actionId, `Rejected by ${decidedBy}`],
+      `UPDATE gateway_actions SET status = $2, executed_at = $3, result = $4, error = $5 WHERE id = $1`,
+      [actionId, newStatus, executed ? new Date() : null, result != null ? JSON.stringify(result) : null, error ?? null],
     );
     await syncTrackedActionStatus(pool, {
       tenantId,
       actionId,
-      actionStatus: 'denied',
-      decision: 'deny',
+      actionStatus: newStatus,
+      decision: 'allow',
     }).catch(() => {});
+
     return {
       actionId,
-      status: 'denied',
-      decision: 'deny',
-      reason: `Rejected by ${decidedBy}`,
-      executed: false,
-      evidenceBundle: action.evidence,
+      status: newStatus,
+      decision: 'allow',
+      reason: `Approved by ${decidedBy}`,
+      executed,
+      result,
+      error,
+      evidenceBundle: typeof action.evidence === 'string' ? JSON.parse(action.evidence) : action.evidence,
       pipelineSteps: [],
     };
-  }
-
-  // Execute
-  let result: unknown;
-  let error: string | undefined;
-  let executed = false;
-
-  if (config.executor) {
-    try {
-      const params = typeof action.parameters === 'string' ? JSON.parse(action.parameters) : action.parameters;
-      result = await config.executor(action.tool, params);
-      executed = true;
-    } catch (err: any) {
-      error = err.message;
-    }
-  }
-
-  const newStatus: GatewayStatus = executed ? 'executed' : 'failed';
-  await pool.query(
-    `UPDATE gateway_actions SET status = $2, executed_at = $3, result = $4, error = $5 WHERE id = $1`,
-    [actionId, newStatus, executed ? new Date() : null, result != null ? JSON.stringify(result) : null, error ?? null],
-  );
-  await syncTrackedActionStatus(pool, {
-    tenantId,
-    actionId,
-    actionStatus: newStatus,
-    decision: 'allow',
-  }).catch(() => {});
-
-  return {
-    actionId,
-    status: newStatus,
-    decision: 'allow',
-    reason: `Approved by ${decidedBy}`,
-    executed,
-    result,
-    error,
-    evidenceBundle: typeof action.evidence === 'string' ? JSON.parse(action.evidence) : action.evidence,
-    pipelineSteps: [],
-  };
+  });
 }
 
 /**
