@@ -4,7 +4,8 @@ import { initAnalytics, page } from "./product/analytics.js";
 
 initAnalytics();
 
-const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
+// LovableSite removed from routing — consolidated to LandingPage
+// const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
 const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
 const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
 
@@ -161,7 +162,6 @@ export default function App() {
   const wantsManagedOnboarding =
     route.mode === "workspace" || (route.mode === "onboarding" && prefersManagedOnboardingFlow());
   const alwaysPublicModes = new Set([
-    "home",
     "product",
     "pricing",
     "developers",
@@ -266,6 +266,14 @@ export default function App() {
   }
 
   // Standalone world runtime pages (no shell)
+  if (route.mode === 'home') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
+        <LandingPage />
+      </Suspense>
+    );
+  }
+
   if (route.mode === 'landing_v2') {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
@@ -295,7 +303,7 @@ export default function App() {
   ) {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
-        <LovableSite mode={route.mode} />
+        <LandingPage mode={route.mode} />
       </Suspense>
     );
   }
