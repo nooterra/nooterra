@@ -13,6 +13,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .calibration import fit_best_calibrator, calibrate
+from .uplift import fit_uplift_model, predict_uplift, TrainedUpliftModel
 from .conformal import compute_intervals_from_residuals
 from .db import (
     close_pool,
@@ -64,6 +65,7 @@ log = logging.getLogger("ml-sidecar")
 _calibrators: dict[str, dict] = {}
 _trained_models: dict[str, TrainedProbabilityModel] = {}
 _intervention_models: dict[str, TrainedInterventionModel] = {}
+_uplift_models: dict[str, TrainedUpliftModel] = {}
 
 MIN_TENANT_TRAINING_ROWS = 20
 MIN_GLOBAL_TRAINING_ROWS = 50
@@ -874,3 +876,55 @@ async def ingest_graded_outcomes(request: Request):
             pass
 
     return JSONResponse({"stored": stored})
+
+
+@app.post("/uplift/train")
+async def train_uplift(request: Request):
+    """Train an uplift model from graded outcomes."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    action_class = body.get("action_class", "communicate.email")
+    outcomes = body.get("outcomes", [])
+
+    if not tenant_id or len(outcomes) < 30:
+        return JSONResponse({"status": "insufficient_data", "model_id": None}, status_code=200)
+
+    model = fit_uplift_model(
+        outcomes,
+        tenant_id=tenant_id,
+        action_class=action_class,
+    )
+
+    if model is None:
+        return JSONResponse({"status": "insufficient_data", "model_id": None}, status_code=200)
+
+    cache_key = f"{tenant_id}:{action_class}"
+    _uplift_models[cache_key] = model
+
+    return JSONResponse({
+        "status": "trained",
+        "model_id": model.model_id,
+        "treatment_samples": model.treatment_sample_count,
+        "control_samples": model.control_sample_count,
+        "observed_lift": model.observed_lift,
+        "treatment_positive_rate": model.treatment_positive_rate,
+        "control_positive_rate": model.control_positive_rate,
+    })
+
+
+@app.post("/uplift/predict")
+async def predict_uplift_endpoint(request: Request):
+    """Predict uplift for a single observation."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    action_class = body.get("action_class", "communicate.email")
+    features = body.get("features", {})
+
+    cache_key = f"{tenant_id}:{action_class}"
+    model = _uplift_models.get(cache_key)
+
+    if model is None:
+        return JSONResponse({"error": "no_model", "lift": None}, status_code=200)
+
+    result = predict_uplift(model, features)
+    return JSONResponse(result)
