@@ -1099,7 +1099,7 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [actionCounts, outcomeCounts, overrideCounts, abstentionCounts] = await Promise.all([
+  const [actionCounts, outcomeCounts, overrideCounts, abstentionCounts, retrainingResult] = await Promise.all([
     pool.query(
       `SELECT
           action_class,
@@ -1133,6 +1133,13 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
         FROM world_autonomy_coverage
         WHERE tenant_id = $1
           AND enforcement_state = 'abstained'`,
+      [tenantId],
+    ),
+    pool.query(
+      `SELECT MAX(created_at) AS last_retrain
+        FROM world_evaluation_reports
+        WHERE tenant_id = $1
+          AND report_type IN ('uplift_quality', 'model_release')`,
       [tenantId],
     ),
   ]);
@@ -1177,9 +1184,41 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
       objectivesAchieved,
       objectivesAchievedRate: observed > 0 ? objectivesAchieved / observed : null,
     },
+    upliftComparison: {
+      status: 'shadow_only',
+      explanation: 'Uplift model is running in shadow mode. Comparison data will be available after uplift earns promotion through evaluation gates.',
+      metrics: null,
+    },
     modeledContribution: {
-      available: false,
-      note: 'Modeled incremental contribution requires uplift models (Phase 2)',
+      status: 'not_available',
+      explanation: 'Modeled incremental contribution requires a promoted uplift model. Current uplift is shadow-only.',
+      metrics: null,
+    },
+    retraining: (() => {
+      const lastRetrain = retrainingResult.rows[0]?.last_retrain;
+      if (!lastRetrain) {
+        return {
+          status: 'no_retraining_yet',
+          explanation: 'No retraining has been performed. Weekly retraining runs automatically when graded outcome data is available.',
+          lastRetrainedAt: null,
+          weeksSinceRetrain: null,
+        };
+      }
+      const weeks = Math.floor((now.getTime() - new Date(lastRetrain).getTime()) / (7 * 24 * 60 * 60 * 1000));
+      return {
+        status: 'active',
+        lastRetrainedAt: new Date(lastRetrain).toISOString(),
+        weeksSinceRetrain: weeks,
+      };
+    })(),
+    overrideRecord: {
+      total: totalOverrides,
+      status: totalOverrides > 0 ? 'tracking' : 'no_overrides',
+      explanation: totalOverrides > 0
+        ? 'Override count is tracked. Human-vs-system outcome comparison requires promoted uplift model.'
+        : 'No human overrides recorded in this period.',
+      humanBetter: null,
+      systemBetter: null,
     },
   };
 }
