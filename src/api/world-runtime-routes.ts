@@ -2371,5 +2371,30 @@ export async function handleWorldRuntimeRoute(
     return true;
   }
 
+  // --- Kill Switch ---
+
+  if (req.method === 'POST' && pathname === '/v1/world/kill-switch') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+    const body = await readBody(req);
+    const data = JSON.parse(body);
+    const { setKillSwitch } = await import('../gateway/kill-switch.js');
+    await setKillSwitch(pool, {
+      enabled: Boolean(data.enabled),
+      scope: data.scope || 'global',
+      tenantId: data.tenantId,
+      reason: data.reason,
+      enabledBy: tenantId,
+    });
+    json(res, { ok: true, enabled: Boolean(data.enabled) });
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname === '/v1/world/kill-switch') {
+    const { getKillSwitchStatus } = await import('../gateway/kill-switch.js');
+    const status = await getKillSwitchStatus(pool);
+    json(res, { killSwitch: status });
+    return true;
+  }
+
   return false; // Route not handled
 }
