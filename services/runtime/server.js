@@ -14,6 +14,26 @@
  *   POLL_INTERVAL_MS      - Scheduler poll interval (default 10000)
  */
 
+import * as Sentry from '@sentry/node';
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+    release: process.env.RAILWAY_GIT_COMMIT_SHA || 'unknown',
+    tracesSampleRate: 0.1,
+    beforeSend(event) {
+      // Strip sensitive data
+      if (event.request?.headers) {
+        delete event.request.headers['authorization'];
+        delete event.request.headers['x-tenant-id'];
+        delete event.request.headers['cookie'];
+      }
+      return event;
+    },
+  });
+}
+
 import { initTracing, withSpan, addSpanAttributes } from './lib/tracing.js';
 initTracing({ serviceName: 'nooterra-scheduler' });
 
