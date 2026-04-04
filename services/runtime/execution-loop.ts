@@ -375,7 +375,7 @@ async function executeCollectionsWorldRuntimeShadow({
       };
 
       const gatewayResult = await gatewaySubmit(pool, gatewayAction, {
-        executor: createCollectionsExecutor(),
+        executor: createCollectionsExecutor(worker.tenant_id),
         escrowThresholdCents: 1,
       });
 

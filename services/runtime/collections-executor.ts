@@ -2,14 +2,15 @@
  * Collections Tool Executor — native handlers for AR collections tools.
  *
  * Routes tool calls to the appropriate service instead of going through
- * Composio. Currently handles:
- *   - send_collection_email → Resend API
- *   - create_followup_task → internal DB (pass-through)
- *   - log_collection_note  → internal DB (pass-through)
+ * Composio for non-email actions. For email:
+ *   1. Try Composio GMAIL_SEND_EMAIL (sends from tenant's own Gmail)
+ *   2. Fall back to Resend (from nooterra.ai — lower deliverability, warns)
  *
  * The gateway (step 6) auto-appends AI disclosure to communicate.* actions
  * before the executor runs, so email bodies already contain the disclosure.
  */
+
+import { executeTool as composioExecuteTool } from './integrations.js';
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -23,17 +24,13 @@ function log(level: string, msg: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Email via Resend
+// Email — try tenant Gmail via Composio first, fall back to Resend
 // ---------------------------------------------------------------------------
 
 export async function executeCollectionEmail(
+  tenantId: string,
   args: { to: string; subject: string; body: string },
-): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_API_KEY) {
-    return { ok: false, error: 'Email sending not configured (RESEND_API_KEY missing)' };
-  }
-
+): Promise<{ ok: boolean; messageId?: string; error?: string; via?: string }> {
   const to = String(args.to ?? '').trim();
   const subject = String(args.subject ?? '').trim();
   const body = String(args.body ?? '');
@@ -42,6 +39,29 @@ export async function executeCollectionEmail(
 
   // AI disclosure is already appended by the gateway (step 6) for
   // communicate.* action classes — do NOT double-append here.
+
+  // Try Composio Gmail first (sends from tenant's own email address)
+  try {
+    const result = await composioExecuteTool(tenantId, 'GMAIL_SEND_EMAIL', {
+      recipient_email: to,
+      subject,
+      body,
+    });
+    if (result.success) {
+      log('info', `Collection email sent via tenant Gmail to ${to}`);
+      return { ok: true, messageId: result.result?.id, via: 'gmail' };
+    }
+    // Gmail not connected or failed — fall through to Resend
+    log('info', `Gmail send failed for ${tenantId}, falling back to Resend: ${result.error}`);
+  } catch {
+    // Composio unavailable — fall through
+  }
+
+  // Fallback: Resend (from nooterra.ai — lower deliverability)
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_API_KEY) {
+    return { ok: false, error: 'No email integration connected. Connect Gmail in Settings → Integrations.' };
+  }
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -65,8 +85,8 @@ export async function executeCollectionEmail(
     }
 
     const result = await res.json() as { id?: string };
-    log('info', `Collection email sent to ${to}: ${result.id}`);
-    return { ok: true, messageId: result.id };
+    log('info', `Collection email sent via Resend to ${to} (fallback — tenant should connect Gmail for better deliverability)`);
+    return { ok: true, messageId: result.id, via: 'resend_fallback' };
   } catch (err: any) {
     log('error', `Email send error: ${err.message}`);
     return { ok: false, error: 'Email delivery failed' };
@@ -80,12 +100,14 @@ export async function executeCollectionEmail(
 /**
  * Build a gateway executor that routes known collections tools to native
  * handlers and rejects unknown tools.
+ *
+ * @param tenantId - Used to send email from the tenant's own Gmail via Composio
  */
-export function createCollectionsExecutor(): (tool: string, params: Record<string, unknown>) => Promise<unknown> {
+export function createCollectionsExecutor(tenantId: string): (tool: string, params: Record<string, unknown>) => Promise<unknown> {
   return async (tool: string, params: Record<string, unknown>) => {
     switch (tool) {
       case 'send_collection_email':
-        return executeCollectionEmail(params as any);
+        return executeCollectionEmail(tenantId, params as any);
 
       case 'create_followup_task':
       case 'log_collection_note':

@@ -238,18 +238,38 @@ function StepConnect({ tenantId, onComplete }) {
 
       <div className="space-y-3">
         {stripeConnected ? (
-          <div className="flex items-center gap-4 p-4 rounded-lg border border-status-healthy/30 bg-status-healthy-muted">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-status-healthy/20">
-              <Check size={18} className="text-status-healthy" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-text-primary">Stripe</span>
-                <span className="text-2xs text-status-healthy font-medium">Connected</span>
+          <>
+            <div className="flex items-center gap-4 p-4 rounded-lg border border-status-healthy/30 bg-status-healthy-muted">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-status-healthy/20">
+                <Check size={18} className="text-status-healthy" />
               </div>
-              <p className="text-xs text-text-secondary mt-0.5">Invoices, payments, customers, disputes</p>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-text-primary">Stripe</span>
+                  <span className="text-2xs text-status-healthy font-medium">Connected</span>
+                </div>
+                <p className="text-xs text-text-secondary mt-0.5">Invoices, payments, customers, disputes</p>
+              </div>
             </div>
-          </div>
+
+            <div className="bg-surface-1 border border-edge rounded-lg p-4 mt-4">
+              <p className="text-sm font-medium text-text-primary mb-1">Recommended: Connect your email</p>
+              <p className="text-2xs text-text-tertiary mb-3">
+                Collection emails will be sent from your own email address for better deliverability.
+                Without this, emails are sent from nooterra.ai and may go to spam.
+              </p>
+              <button
+                onClick={() => {
+                  const oauthUrl = `${API_BASE}/v1/integrations/gmail/authorize?tenantId=${encodeURIComponent(tenantId)}`;
+                  const popup = window.open(oauthUrl, 'nooterra_oauth', 'width=520,height=700,popup=yes');
+                  if (!popup) window.location.href = oauthUrl;
+                }}
+                className="px-3 py-1.5 bg-surface-2 border border-edge rounded text-xs font-medium text-text-secondary hover:bg-surface-3 transition-colors"
+              >
+                Connect Gmail
+              </button>
+            </div>
+          </>
         ) : (
           <div className="p-4 rounded-lg border border-edge bg-surface-2 space-y-3">
             <div className="flex items-center gap-3">

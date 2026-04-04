@@ -2252,7 +2252,7 @@ export async function handleWorldRuntimeRoute(
 
     try {
       const result = await releaseEscrow(pool, auth.tenantId, actionId, decision, auth.actorId, {
-        executor: createCollectionsExecutor(),
+        executor: createCollectionsExecutor(auth.tenantId),
       });
       json(res, result);
     } catch (err: any) {
