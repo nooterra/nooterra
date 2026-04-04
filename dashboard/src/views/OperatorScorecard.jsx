@@ -1,18 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { worldApi } from '../lib/world-api';
 
 function MetricCard({ label, value, subtitle }) {
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 8,
-      padding: '16px 20px',
-      minWidth: 160,
-    }}>
-      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      {subtitle && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{subtitle}</div>}
+    <div className="bg-surface-1 border border-edge rounded-lg px-4 py-3 min-w-[140px]">
+      <div className="text-2xs text-text-tertiary mb-1">{label}</div>
+      <div className="text-xl font-semibold font-mono tabular-nums text-text-primary">{value}</div>
+      {subtitle && <div className="text-2xs text-text-tertiary mt-1">{subtitle}</div>}
+    </div>
+  );
+}
+
+function EmptyBox({ status, explanation }) {
+  return (
+    <div className="bg-surface-1 border border-edge rounded-lg p-5 mb-8">
+      {status && (
+        <div className="text-xs font-medium text-text-secondary mb-1">{status}</div>
+      )}
+      <div className="text-text-tertiary text-xs leading-relaxed">{explanation}</div>
     </div>
   );
 }
@@ -29,124 +34,167 @@ export default function OperatorScorecard() {
 
   useEffect(() => {
     let cancelled = false;
+
     async function load() {
       try {
         const data = await worldApi('/v1/world/scorecard');
-        if (!cancelled) setScorecard(data);
+        if (!cancelled) {
+          setScorecard(data);
+          setError(null);
+        }
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
+
     load();
     const interval = setInterval(load, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
-  if (loading) return <div style={{ padding: 32, color: 'rgba(255,255,255,0.5)' }}>Loading scorecard...</div>;
-  if (error) return <div style={{ padding: 32, color: '#f87171' }}>Error: {error}</div>;
+  if (loading) {
+    return (
+      <div className="h-full bg-surface-0 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-5 py-6">
+          <p className="text-text-tertiary text-sm">Loading scorecard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-full bg-surface-0 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-5 py-6">
+          <p className="text-status-blocked text-sm">Error: {error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!scorecard) return null;
 
   const { summary, outcomes } = scorecard;
 
   return (
-    <div style={{ padding: 32, maxWidth: 900 }}>
-      <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Judgment Scorecard</h2>
-      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 24 }}>
-        Last 30 days — {new Date(scorecard.generatedAt).toLocaleString()}
-      </div>
+    <div className="h-full bg-surface-0 overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-5 py-6">
 
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
-        <MetricCard label="Total Actions" value={summary.totalActions} />
-        <MetricCard label="Strategic Holds" value={summary.totalHolds} subtitle={formatRate(summary.holdRate)} />
-        <MetricCard label="Human Overrides" value={summary.totalOverrides} subtitle={formatRate(summary.overrideRate)} />
-      </div>
-
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>Outcomes</h3>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
-        <MetricCard label="Observed" value={outcomes.observed} />
-        <MetricCard label="Pending" value={outcomes.pending} />
-        <MetricCard label="Objectives Achieved" value={outcomes.objectivesAchieved} subtitle={formatRate(outcomes.objectivesAchievedRate)} />
-      </div>
-
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>Uplift vs Heuristic</h3>
-      {scorecard.upliftComparison?.metrics
-        ? <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
-            {/* Real uplift metrics would go here when promoted */}
-          </div>
-        : <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 8,
-            padding: '16px 20px',
-            color: 'rgba(255,255,255,0.4)',
-            fontSize: 13,
-            marginBottom: 32,
-            lineHeight: 1.6,
-          }}>
-            <div style={{ fontWeight: 500, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>
-              {scorecard.upliftComparison?.status === 'shadow_only' ? 'Shadow Mode' : 'Not Available'}
-            </div>
-            {scorecard.upliftComparison?.explanation}
-          </div>
-      }
-
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>Override Record</h3>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
-        <MetricCard label="Total Overrides" value={scorecard.overrideRecord?.total ?? 0} />
-        {scorecard.overrideRecord?.humanBetter != null && (
-          <MetricCard label="Human Better" value={scorecard.overrideRecord.humanBetter} />
-        )}
-        {scorecard.overrideRecord?.systemBetter != null && (
-          <MetricCard label="System Better" value={scorecard.overrideRecord.systemBetter} />
-        )}
-      </div>
-      {scorecard.overrideRecord?.humanBetter == null && (
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginBottom: 32 }}>
-          {scorecard.overrideRecord?.explanation}
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-text-primary">Judgment Scorecard</h2>
+          <p className="text-2xs text-text-tertiary mt-1">
+            Last 30 days — {new Date(scorecard.generatedAt).toLocaleString()}
+          </p>
         </div>
-      )}
 
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>Retraining</h3>
-      {scorecard.retraining?.status === 'active'
-        ? <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
+        {/* Summary */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Summary</h3>
+          <div className="flex flex-wrap gap-3">
+            <MetricCard label="Total Actions" value={summary.totalActions} />
             <MetricCard
-              label="Last Retrained"
-              value={new Date(scorecard.retraining.lastRetrainedAt).toLocaleDateString()}
+              label="Strategic Holds"
+              value={summary.totalHolds}
+              subtitle={formatRate(summary.holdRate)}
             />
-            <MetricCard label="Weeks Since" value={scorecard.retraining.weeksSinceRetrain} />
+            <MetricCard
+              label="Human Overrides"
+              value={summary.totalOverrides}
+              subtitle={formatRate(summary.overrideRate)}
+            />
           </div>
-        : <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 8,
-            padding: '16px 20px',
-            color: 'rgba(255,255,255,0.4)',
-            fontSize: 13,
-            marginBottom: 32,
-          }}>
-            {scorecard.retraining?.explanation || 'No retraining has been performed yet.'}
-          </div>
-      }
+        </div>
 
-      <h3 style={{ fontSize: 16, fontWeight: 500, marginBottom: 12 }}>Modeled Contribution</h3>
-      {scorecard.modeledContribution?.metrics
-        ? <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
-            {/* Real modeled contribution would go here */}
+        {/* Outcomes */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Outcomes</h3>
+          <div className="flex flex-wrap gap-3">
+            <MetricCard label="Observed" value={outcomes.observed} />
+            <MetricCard label="Pending" value={outcomes.pending} />
+            <MetricCard
+              label="Objectives Achieved"
+              value={outcomes.objectivesAchieved}
+              subtitle={formatRate(outcomes.objectivesAchievedRate)}
+            />
           </div>
-        : <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 8,
-            padding: '16px 20px',
-            color: 'rgba(255,255,255,0.4)',
-            fontSize: 13,
-            marginBottom: 32,
-          }}>
-            {scorecard.modeledContribution?.explanation || 'Not yet available.'}
+        </div>
+
+        {/* Uplift vs Heuristic */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Uplift vs Heuristic</h3>
+          {scorecard.upliftComparison?.metrics ? (
+            <div className="flex flex-wrap gap-3">
+              {/* Real uplift metrics would go here when promoted */}
+            </div>
+          ) : (
+            <EmptyBox
+              status={
+                scorecard.upliftComparison?.status === 'shadow_only'
+                  ? 'Shadow Mode'
+                  : scorecard.upliftComparison?.status
+                  ? scorecard.upliftComparison.status
+                  : 'Not Available'
+              }
+              explanation={scorecard.upliftComparison?.explanation}
+            />
+          )}
+        </div>
+
+        {/* Override Record */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Override Record</h3>
+          <div className="flex flex-wrap gap-3 mb-2">
+            <MetricCard label="Total Overrides" value={scorecard.overrideRecord?.total ?? 0} />
+            {scorecard.overrideRecord?.humanBetter != null && (
+              <MetricCard label="Human Better" value={scorecard.overrideRecord.humanBetter} />
+            )}
+            {scorecard.overrideRecord?.systemBetter != null && (
+              <MetricCard label="System Better" value={scorecard.overrideRecord.systemBetter} />
+            )}
           </div>
-      }
+          {scorecard.overrideRecord?.humanBetter == null && scorecard.overrideRecord?.explanation && (
+            <p className="text-2xs text-text-tertiary">{scorecard.overrideRecord.explanation}</p>
+          )}
+        </div>
+
+        {/* Retraining */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Retraining</h3>
+          {scorecard.retraining?.status === 'active' ? (
+            <div className="flex flex-wrap gap-3">
+              <MetricCard
+                label="Last Retrained"
+                value={new Date(scorecard.retraining.lastRetrainedAt).toLocaleDateString()}
+              />
+              <MetricCard label="Weeks Since" value={scorecard.retraining.weeksSinceRetrain} />
+            </div>
+          ) : (
+            <EmptyBox
+              explanation={scorecard.retraining?.explanation || 'No retraining has been performed yet.'}
+            />
+          )}
+        </div>
+
+        {/* Modeled Contribution */}
+        <div className="mb-8">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Modeled Contribution</h3>
+          {scorecard.modeledContribution?.metrics ? (
+            <div className="flex flex-wrap gap-3">
+              {/* Real modeled contribution would go here */}
+            </div>
+          ) : (
+            <EmptyBox
+              explanation={scorecard.modeledContribution?.explanation || 'Not yet available.'}
+            />
+          )}
+        </div>
+
+      </div>
     </div>
   );
 }
