@@ -20,7 +20,7 @@ import { buildComparativeReplay, generateReactivePlan } from '../planner/planner
 import { coverageMap } from '../bridge.js';
 import { generateOptimizationReport } from '../agents/optimizer.js';
 import { getPendingEscrow, releaseEscrow } from '../gateway/gateway.js';
-import { COLLECTIONS_TOOLS, createCollectionsAgent, createCollectionsGrant } from '../agents/templates/ar-collections.ts';
+import { COLLECTIONS_TOOLS, createCollectionsAgent, createCollectionsGrant } from '../domains/ar/runtime.js';
 import { grantAuthority } from '../policy/authority-graph.ts';
 import { normalizeWorkerRuntimePolicyOverrides } from '../../services/runtime/runtime-policy-store.js';
 import { getAuthenticatedTenantId, validateSession } from '../../services/runtime/auth.js';
