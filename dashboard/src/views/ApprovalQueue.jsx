@@ -1,139 +1,49 @@
-/**
- * Approval Queue — escrowed actions waiting for human decision.
- *
- * Each action card shows: what the agent wants to do, why (evidence bundle),
- * what the world model predicts will happen, the authority chain, and risk factors.
- *
- * Three buttons: Approve, Reject (with reason), Modify.
- * Batch operations for similar actions.
- */
-
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  CheckCircle2, XCircle, Edit3, ChevronDown, ChevronRight,
-  Mail, Clock, Shield, AlertTriangle, TrendingUp, Eye,
-  FileText, User, Link2, Zap,
+  CheckCircle2, ChevronDown, ChevronRight, Edit3, FileText, Mail, Pause, XCircle,
 } from 'lucide-react';
+import { getEscrowQueue, releaseEscrow } from '../lib/world-api.js';
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
+function parseJson(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
 
-const MOCK_ESCROW = [
-  {
-    id: 'act_01HXA1',
-    agentName: 'Collections Agent',
-    actionClass: 'communicate.email',
-    tool: 'send_collection_email',
-    status: 'escrowed',
-    createdAt: '12 minutes ago',
-    risk: 'low',
-    target: {
-      type: 'invoice',
-      name: 'INV-2024-001',
-      detail: '$4,200 — Acme Corp — 18 days overdue',
-    },
-    parameters: {
-      to: 'billing@acme.com',
-      subject: 'Friendly reminder: Invoice INV-2024-001 — $4,200.00',
-      body: 'Hi Acme Corp team,\n\nI wanted to follow up on Invoice INV-2024-001 for $4,200.00, which was due on March 15. We understand things can slip through — would you be able to process this payment at your earliest convenience?\n\nYou can pay directly here: [payment link]\n\nPlease let us know if you have any questions about this invoice.\n\nBest regards',
-      urgency: 'friendly',
-    },
-    evidence: {
-      policyClauses: ['Collection email authority (pol_01)', 'Contact frequency limit (pol_04)'],
-      factsReliedOn: ['Invoice 18 days overdue', 'Customer payment reliability: 85%', 'No contact in last 7 days', 'No dispute signals detected'],
-      uncertaintyDeclared: 0.12,
-      authorityChain: ['Human root grant → Collections Agent grant (communicate.email, <$50K)'],
-    },
-    prediction: {
-      paymentProbability: { current: 0.72, afterAction: 0.85 },
-      disputeRisk: { current: 0.08, afterAction: 0.08 },
-      recommendation: 'proceed',
-    },
-  },
-  {
-    id: 'act_01HXA2',
-    agentName: 'Collections Agent',
-    actionClass: 'task.create',
-    tool: 'create_followup_task',
-    status: 'escrowed',
-    createdAt: '45 minutes ago',
-    risk: 'high',
-    target: {
-      type: 'invoice',
-      name: 'INV-2024-007',
-      detail: '$28,500 — TechVentures Inc — 45 days overdue',
-    },
-    parameters: {
-      title: 'ESCALATION: TechVentures Inc — $28,500 overdue, dispute detected',
-      description: 'Invoice INV-2024-007 is 45 days overdue. Customer mentioned "incorrect charges" in email on March 20. Dispute risk is 67%. Recommend human review before further automated action.',
-      priority: 'critical',
-      relatedObjectIds: ['inv_01HX3H', 'party_01HX2I'],
-    },
-    evidence: {
-      policyClauses: ['Escalation threshold (pol_03)', 'Collection email authority — Stage 3 triggers task.create'],
-      factsReliedOn: ['Invoice 45 days overdue', 'Customer mentioned "incorrect charges"', 'Dispute risk: 67%', 'Payment probability (7d): 12%'],
-      uncertaintyDeclared: 0.35,
-      authorityChain: ['Human root grant → Collections Agent grant (task.create requires approval)'],
-    },
-    prediction: {
-      paymentProbability: { current: 0.12, afterAction: 0.12 },
-      disputeRisk: { current: 0.67, afterAction: 0.67 },
-      recommendation: 'proceed_with_caution',
-    },
-  },
-];
+function formatTime(value) {
+  if (!value) return 'unavailable';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'unavailable';
+  return date.toLocaleString();
+}
 
-// ---------------------------------------------------------------------------
-// Components
-// ---------------------------------------------------------------------------
-
-function RiskBadge({ risk }) {
+function RiskBadge({ action }) {
+  const evidence = parseJson(action.evidence, {});
+  const uncertainty = Number(evidence?.uncertaintyDeclared ?? 0);
+  const risk = uncertainty >= 0.3 || Number(action.value_cents || 0) >= 500000 ? 'high'
+    : uncertainty >= 0.15 ? 'medium'
+    : 'low';
   const styles = {
     low: 'bg-status-healthy-muted text-status-healthy',
     medium: 'bg-status-attention-muted text-status-attention',
     high: 'bg-status-blocked-muted text-status-blocked',
   };
-  return (
-    <span className={`text-2xs font-medium px-1.5 py-0.5 rounded uppercase ${styles[risk]}`}>
-      {risk} risk
-    </span>
-  );
+  return <span className={`text-2xs font-medium px-1.5 py-0.5 rounded uppercase ${styles[risk]}`}>{risk} risk</span>;
 }
 
-function PredictionDelta({ label, current, after }) {
-  const delta = after - current;
-  const improved = (label.includes('payment') && delta > 0) || (label.includes('dispute') && delta < 0);
-  const unchanged = Math.abs(delta) < 0.01;
-
-  return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-xs text-text-secondary">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-mono text-text-tertiary">{(current * 100).toFixed(0)}%</span>
-        {!unchanged && (
-          <>
-            <ChevronRight size={10} className="text-text-tertiary" />
-            <span className={`text-xs font-mono font-medium ${improved ? 'text-status-healthy' : 'text-status-attention'}`}>
-              {(after * 100).toFixed(0)}%
-            </span>
-          </>
-        )}
-        {unchanged && <span className="text-2xs text-text-tertiary">no change</span>}
-      </div>
-    </div>
-  );
-}
-
-function EscrowCard({ action, onApprove, onReject }) {
+function ActionCard({ action, onResolve, busy }) {
   const [expanded, setExpanded] = useState(false);
-  const isEmail = action.actionClass === 'communicate.email';
+  const parameters = parseJson(action.parameters, {});
+  const evidence = parseJson(action.evidence, {});
+  const actionClass = String(action.action_class || '');
+  const isEmail = actionClass.startsWith('communicate.email');
 
   return (
-    <div className={`rounded-lg border bg-surface-1 transition-colors ${
-      action.risk === 'high' ? 'border-status-blocked/30' : 'border-edge'
-    }`}>
-      {/* Header */}
+    <div className="rounded-lg border bg-surface-1 border-edge">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
@@ -142,251 +52,179 @@ function EscrowCard({ action, onApprove, onReject }) {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-text-primary">
-                  {isEmail ? 'Send email' : 'Create task'}
-                </span>
-                <RiskBadge risk={action.risk} />
+                <span className="text-sm font-medium text-text-primary">{actionClass || 'Escrowed action'}</span>
+                <RiskBadge action={action} />
               </div>
-              <p className="text-xs text-text-secondary mt-0.5">{action.target.detail}</p>
+              <p className="text-xs text-text-secondary mt-0.5">
+                {action.target_object_type || 'object unavailable'} · {action.target_object_id || 'target unavailable'}
+              </p>
               <div className="flex items-center gap-3 mt-1 text-2xs text-text-tertiary">
-                <span className="flex items-center gap-1"><Zap size={10} />{action.agentName}</span>
-                <span className="flex items-center gap-1"><Clock size={10} />{action.createdAt}</span>
+                <span>{action.tool || 'tool unavailable'}</span>
+                <span>{formatTime(action.created_at)}</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Email preview */}
-        {isEmail && action.parameters.body && (
+        {isEmail ? (
           <div className="mt-3 p-3 rounded bg-surface-0 border border-edge-subtle">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xs text-text-tertiary">To:</span>
-              <span className="text-xs text-text-primary font-mono">{action.parameters.to}</span>
+              <span className="text-xs text-text-primary font-mono">{parameters.to || 'unavailable'}</span>
             </div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xs text-text-tertiary">Subject:</span>
-              <span className="text-xs text-text-primary">{action.parameters.subject}</span>
+              <span className="text-xs text-text-primary">{parameters.subject || 'unavailable'}</span>
             </div>
             <div className="border-t border-edge-subtle pt-2">
               <p className="text-xs text-text-secondary whitespace-pre-line leading-relaxed">
-                {action.parameters.body}
-              </p>
-              <p className="text-2xs text-text-tertiary mt-2 italic">
-                [AI disclosure will be auto-appended by gateway]
+                {parameters.body || 'Body unavailable from the escrow record.'}
               </p>
             </div>
           </div>
+        ) : (
+          <div className="mt-3 p-3 rounded bg-surface-0 border border-edge-subtle">
+            <div className="text-2xs text-text-tertiary uppercase tracking-wider mb-2">Parameters</div>
+            <pre className="text-xs text-text-secondary whitespace-pre-wrap break-all">
+              {JSON.stringify(parameters, null, 2)}
+            </pre>
+          </div>
         )}
 
-        {/* Expandable evidence */}
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpanded((value) => !value)}
           className="flex items-center gap-1 mt-3 text-2xs text-text-tertiary hover:text-text-secondary transition-colors"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          Evidence bundle + prediction
+          Evidence bundle
         </button>
 
-        {expanded && (
-          <div className="mt-3 space-y-3 animate-fade-in">
-            {/* Evidence */}
+        {expanded ? (
+          <div className="mt-3 space-y-3">
             <div>
-              <span className="text-2xs text-text-tertiary uppercase tracking-wider">Evidence</span>
-              <div className="mt-1.5 space-y-1">
-                {action.evidence.factsReliedOn.map((fact, i) => (
-                  <div key={i} className="flex items-start gap-1.5">
-                    <span className="text-status-healthy mt-0.5">
-                      <CheckCircle2 size={10} />
-                    </span>
-                    <span className="text-xs text-text-secondary">{fact}</span>
-                  </div>
-                ))}
+              <span className="text-2xs text-text-tertiary uppercase tracking-wider">Policy clauses</span>
+              <div className="mt-1.5 text-xs text-text-secondary">
+                {(evidence.policyClauses || []).length > 0 ? (evidence.policyClauses || []).join(' · ') : 'Unavailable'}
               </div>
             </div>
-
-            {/* Policy clauses */}
             <div>
-              <span className="text-2xs text-text-tertiary uppercase tracking-wider">Policies satisfied</span>
-              <div className="mt-1.5 space-y-1">
-                {action.evidence.policyClauses.map((clause, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <Shield size={10} className="text-accent" />
-                    <span className="text-xs text-text-secondary">{clause}</span>
-                  </div>
-                ))}
+              <span className="text-2xs text-text-tertiary uppercase tracking-wider">Facts relied on</span>
+              <div className="mt-1.5 text-xs text-text-secondary">
+                {(evidence.factsReliedOn || []).length > 0 ? (evidence.factsReliedOn || []).join(' · ') : 'Unavailable'}
               </div>
             </div>
-
-            {/* Authority chain */}
             <div>
               <span className="text-2xs text-text-tertiary uppercase tracking-wider">Authority chain</span>
-              <p className="text-xs text-text-secondary mt-1 font-mono">{action.evidence.authorityChain[0]}</p>
-            </div>
-
-            {/* Uncertainty */}
-            <div className="flex items-center gap-2">
-              <span className="text-2xs text-text-tertiary">Declared uncertainty:</span>
-              <span className="text-xs font-mono text-status-predicted">{(action.evidence.uncertaintyDeclared * 100).toFixed(0)}%</span>
-            </div>
-
-            {/* Prediction */}
-            <div>
-              <span className="text-2xs text-text-tertiary uppercase tracking-wider">Predicted impact</span>
-              <div className="mt-1.5 p-2 rounded bg-surface-2">
-                <PredictionDelta
-                  label="Payment probability (7d)"
-                  current={action.prediction.paymentProbability.current}
-                  after={action.prediction.paymentProbability.afterAction}
-                />
-                <PredictionDelta
-                  label="Dispute risk"
-                  current={action.prediction.disputeRisk.current}
-                  after={action.prediction.disputeRisk.afterAction}
-                />
+              <div className="mt-1.5 text-xs text-text-secondary">
+                {(evidence.authorityChain || []).length > 0 ? (evidence.authorityChain || []).join(' → ') : 'Unavailable'}
               </div>
             </div>
+            <div className="text-2xs text-text-tertiary">
+              Declared uncertainty: {evidence.uncertaintyDeclared != null ? `${Math.round(Number(evidence.uncertaintyDeclared) * 100)}%` : 'Unavailable'}
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
 
-      {/* Action buttons */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-edge-subtle bg-surface-0/50 rounded-b-lg">
         <button
-          onClick={() => onApprove(action.id)}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-status-healthy/20 text-status-healthy hover:bg-status-healthy/30 transition-colors"
+          onClick={() => onResolve(action.id, 'execute')}
+          disabled={busy}
+          aria-label={`Approve action: ${action.action_class || action.id}`}
+          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-status-healthy/20 text-status-healthy hover:bg-status-healthy/30 transition-colors disabled:opacity-50"
         >
           <CheckCircle2 size={12} /> Approve
         </button>
         <button
-          onClick={() => onReject(action.id)}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-status-blocked/10 text-status-blocked hover:bg-status-blocked/20 transition-colors"
+          onClick={() => onResolve(action.id, 'reject')}
+          disabled={busy}
+          aria-label={`Reject action: ${action.action_class || action.id}`}
+          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-status-blocked/10 text-status-blocked hover:bg-status-blocked/20 transition-colors disabled:opacity-50"
         >
           <XCircle size={12} /> Reject
         </button>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-3 transition-colors">
-          <Edit3 size={12} /> Modify
-        </button>
+        <span className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs text-text-tertiary bg-surface-2">
+          <Edit3 size={12} /> Modify unavailable
+        </span>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main View
-// ---------------------------------------------------------------------------
-
 export default function ApprovalQueue() {
-  const [actions, setActions] = useState(MOCK_ESCROW);
-  const [confirming, setConfirming] = useState(null); // { id, action: 'approve'|'reject' }
+  const [actions, setActions] = useState([]);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
 
-  const handleApprove = (id) => {
-    const action = actions.find(a => a.id === id);
-    if (action?.risk === 'high') {
-      setConfirming({ id, decision: 'approve' });
-      return;
+  async function load() {
+    try {
+      const next = await getEscrowQueue();
+      setActions(Array.isArray(next) ? next : []);
+      setError('');
+    } catch (err) {
+      setActions([]);
+      setError(err.message || 'Failed to load escrow queue');
     }
-    setActions(prev => prev.filter(a => a.id !== id));
-  };
+  }
 
-  const handleReject = (id) => {
-    setConfirming({ id, decision: 'reject' });
-  };
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const confirmAction = () => {
-    if (confirming) {
-      setActions(prev => prev.filter(a => a.id !== confirming.id));
-      setConfirming(null);
+  async function handleResolve(actionId, decision) {
+    setBusyId(actionId);
+    try {
+      await releaseEscrow(actionId, decision);
+      await load();
+    } catch (err) {
+      setError(err.message || 'Failed to resolve escrow action');
+    } finally {
+      setBusyId('');
     }
-  };
+  }
 
   return (
     <div className="h-full bg-surface-0 overflow-y-auto">
-      <div className="max-w-4xl mx-auto px-5 py-6">
-        {/* Header */}
+      <div className="max-w-5xl mx-auto px-5 py-6">
         <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-text-secondary">
-            {actions.length} action{actions.length !== 1 ? 's' : ''} waiting for your decision.
-          </p>
-          {actions.length > 1 && (
-            <button className="text-xs text-accent hover:text-accent-hover transition-colors">
-              Batch approve similar
-            </button>
-          )}
+          <div>
+            <h2 className="text-sm font-medium text-text-primary">Action gateway queue</h2>
+            <p className="text-xs text-text-secondary mt-1">
+              Real escrowed actions from the gateway. Missing fields are shown as unavailable instead of being invented.
+            </p>
+          </div>
+          <div className="text-2xs text-text-tertiary font-mono">{actions.length} queued</div>
         </div>
 
-        {/* Queue */}
-        {actions.length > 0 ? (
+        {error ? (
+          <div className="mb-4 rounded-lg border border-status-blocked/30 bg-status-blocked-muted px-4 py-3 text-sm text-status-blocked">
+            {error}
+          </div>
+        ) : null}
+
+        {actions.length === 0 ? (
+          <div className="rounded-lg border border-edge bg-surface-1 p-6 text-center">
+            <Pause size={18} className="mx-auto text-text-tertiary mb-2" />
+            <p className="text-sm text-text-primary">No escrowed actions</p>
+            <p className="text-xs text-text-secondary mt-1">
+              The action gateway is clear. New governed actions will appear here when they require approval.
+            </p>
+          </div>
+        ) : (
           <div className="space-y-4">
-            {actions.map(action => (
-              <EscrowCard
+            {actions.map((action) => (
+              <ActionCard
                 key={action.id}
                 action={action}
-                onApprove={handleApprove}
-                onReject={handleReject}
+                busy={busyId === action.id}
+                onResolve={handleResolve}
               />
             ))}
           </div>
-        ) : (
-          <div className="py-20 text-center">
-            <CheckCircle2 size={32} className="mx-auto text-status-healthy mb-3" />
-            <p className="text-sm text-text-primary font-medium">All clear</p>
-            <p className="text-xs text-text-secondary mt-1">No actions waiting for approval.</p>
-          </div>
-        )}
-
-        {/* Policy suggestion */}
-        {actions.length > 0 && (
-          <div className="mt-8 p-4 rounded-lg bg-surface-2 border border-edge">
-            <div className="flex items-start gap-2.5">
-              <TrendingUp size={14} className="flex-shrink-0 mt-0.5 text-status-predicted" />
-              <div>
-                <p className="text-sm text-text-primary font-medium">Pattern detected</p>
-                <p className="text-xs text-text-secondary mt-1">
-                  You've approved 38 similar email actions for known customers with invoices under $5K.
-                  Want to make this autonomous?
-                </p>
-                <button className="mt-2 text-xs font-medium text-accent hover:text-accent-hover transition-colors">
-                  Create autonomy policy <ChevronRight size={10} className="inline" />
-                </button>
-              </div>
-            </div>
-          </div>
         )}
       </div>
-
-      {/* Confirmation overlay */}
-      {confirming && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0/80 backdrop-blur-sm">
-          <div className="bg-surface-2 border border-edge rounded-lg p-5 w-80 shadow-lg animate-fade-in">
-            <p className="text-sm font-medium text-text-primary mb-2">
-              {confirming.decision === 'approve' ? 'Confirm approval' : 'Confirm rejection'}
-            </p>
-            <p className="text-xs text-text-secondary mb-4">
-              {confirming.decision === 'approve'
-                ? 'This is a high-risk action. Are you sure you want to approve it?'
-                : 'This will reject the proposed action. The agent will be notified.'}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={confirmAction}
-                className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                  confirming.decision === 'approve'
-                    ? 'bg-status-healthy/20 text-status-healthy hover:bg-status-healthy/30'
-                    : 'bg-status-blocked/20 text-status-blocked hover:bg-status-blocked/30'
-                }`}
-              >
-                {confirming.decision === 'approve' ? 'Yes, approve' : 'Yes, reject'}
-              </button>
-              <button
-                onClick={() => setConfirming(null)}
-                className="flex-1 px-3 py-1.5 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-3 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

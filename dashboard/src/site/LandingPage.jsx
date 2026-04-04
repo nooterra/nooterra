@@ -28,7 +28,7 @@ const T = {
   // Text
   ink: '#1A1A1A',
   iron: '#52524E',
-  stone: '#8C8C86',
+  stone: '#737370',  // darkened for WCAG AA contrast (was #8C8C86, 3.2:1 — now 4.6:1)
   // Accent — saturated teal (not blue, not green — in between)
   teal: '#0D9488',
   tealDeep: '#0A7A70',

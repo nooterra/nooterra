@@ -4751,3 +4751,41 @@ textarea {
     font-size: clamp(2.4rem, 17vw, 4rem);
   }
 }
+
+/* ============================================================
+   Accessibility: focus-visible, reduced-motion
+   ============================================================ */
+
+/* Visible focus indicator for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid var(--product-accent, #0D9488);
+  outline-offset: 2px;
+}
+
+/* Lighter outline on dark backgrounds */
+[data-theme="dark"] *:focus-visible {
+  outline-color: #5eead4;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] *:focus-visible {
+    outline-color: #5eead4;
+  }
+}
+
+/* Remove default outline only when focus-visible handles it */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Reduced motion: respect user preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
