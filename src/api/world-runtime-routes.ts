@@ -464,7 +464,7 @@ async function persistModelReleasePromotionGate(
   return result.rowCount;
 }
 
-function getPromotionQualityArtifact(report: Awaited<ReturnType<typeof getEvaluationReport>>) {
+function getPromotionQualityArtifact(report: Awaited<ReturnType<typeof getEvaluationReport>> | null | undefined) {
   const artifact = report?.artifact;
   return artifact && typeof artifact === 'object' && !Array.isArray(artifact)
     ? artifact as Record<string, unknown>
@@ -1105,7 +1105,7 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [actionCounts, outcomeCounts, overrideCounts, abstentionCounts, retrainingResult] = await Promise.all([
+  const [actionCounts, outcomeCounts, humanReviewCounts, abstentionCounts, retrainingReport] = await Promise.all([
     pool.query(
       `SELECT
           action_class,
@@ -1126,27 +1126,30 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
       [tenantId, thirtyDaysAgo.toISOString()],
     ),
     pool.query(
-      `SELECT COUNT(*)::int AS count
+      `SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status = 'executed' AND auth_decision = 'require_approval')::int AS approved,
+          COUNT(*) FILTER (WHERE status = 'denied')::int AS rejected
         FROM gateway_actions
         WHERE tenant_id = $1
-          AND created_at >= $2
-          AND status IN ('denied', 'escrowed')
+          AND created_at >= $2 AND created_at <= $3
           AND auth_decision = 'require_approval'`,
-      [tenantId, thirtyDaysAgo.toISOString()],
+      [tenantId, thirtyDaysAgo.toISOString(), now.toISOString()],
     ),
     pool.query(
       `SELECT COUNT(*)::int AS count
         FROM world_autonomy_coverage
         WHERE tenant_id = $1
-          AND enforcement_state = 'abstained'`,
-      [tenantId],
+          AND enforcement_state = 'abstained'
+          AND last_evaluated_at >= $2`,
+      [tenantId, thirtyDaysAgo.toISOString()],
     ),
-    pool.query(
-      `SELECT MAX(created_at) AS last_retrain
-        FROM world_evaluation_reports
-        WHERE tenant_id = $1
-          AND report_type IN ('uplift_quality', 'model_release')`,
-      [tenantId],
+    findEvaluationReportBySubject(
+      pool,
+      tenantId,
+      'retraining_state',
+      'scheduler_job',
+      'weekly_retraining',
     ),
   ]);
 
@@ -1171,7 +1174,9 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
     }
   }
 
-  const totalOverrides = Number(overrideCounts.rows[0]?.count ?? 0);
+  const totalHumanReviewed = Number(humanReviewCounts.rows[0]?.total ?? 0);
+  const totalApproved = Number(humanReviewCounts.rows[0]?.approved ?? 0);
+  const totalRejected = Number(humanReviewCounts.rows[0]?.rejected ?? 0);
 
   return {
     tenantId,
@@ -1179,10 +1184,10 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
     summary: {
       totalActions,
       totalHolds,
-      totalOverrides,
+      totalHumanReviewed,
       defensiveAbstentions: Number(abstentionCounts.rows[0]?.count ?? 0),
       holdRate: totalActions > 0 ? totalHolds / totalActions : 0,
-      overrideRate: totalActions > 0 ? totalOverrides / totalActions : 0,
+      humanReviewRate: totalActions > 0 ? totalHumanReviewed / totalActions : 0,
     },
     outcomes: {
       observed,
@@ -1201,8 +1206,16 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
       metrics: null,
     },
     retraining: (() => {
-      const lastRetrain = retrainingResult.rows[0]?.last_retrain;
-      if (!lastRetrain) {
+      const artifact = retrainingReport?.artifact && typeof retrainingReport.artifact === 'object' && !Array.isArray(retrainingReport.artifact)
+        ? retrainingReport.artifact as Record<string, unknown>
+        : {};
+      const completedAtRaw = typeof artifact.lastCompletedAt === 'string'
+        ? artifact.lastCompletedAt
+        : typeof artifact.completedAt === 'string'
+          ? artifact.completedAt
+          : null;
+      const lastRetrain = completedAtRaw ? new Date(completedAtRaw) : retrainingReport?.updatedAt ?? null;
+      if (!lastRetrain || Number.isNaN(lastRetrain.getTime())) {
         return {
           status: 'no_retraining_yet',
           explanation: 'No retraining has been performed. Weekly retraining runs automatically when graded outcome data is available.',
@@ -1210,21 +1223,40 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
           weeksSinceRetrain: null,
         };
       }
-      const weeks = Math.floor((now.getTime() - new Date(lastRetrain).getTime()) / (7 * 24 * 60 * 60 * 1000));
+      const weeks = Math.floor((now.getTime() - lastRetrain.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      const reportStatus = String(retrainingReport?.status ?? 'completed');
+      if (reportStatus === 'insufficient_data') {
+        return {
+          status: 'insufficient_data',
+          explanation: 'Weekly retraining ran, but there is not enough graded outcome data yet to produce a candidate release.',
+          lastRetrainedAt: lastRetrain.toISOString(),
+          weeksSinceRetrain: weeks,
+        };
+      }
+      if (reportStatus === 'degraded') {
+        return {
+          status: 'degraded',
+          explanation: 'Weekly retraining ran, but one or more model services were unavailable. Existing fallbacks remain in effect.',
+          lastRetrainedAt: lastRetrain.toISOString(),
+          weeksSinceRetrain: weeks,
+        };
+      }
       return {
         status: 'active',
-        lastRetrainedAt: new Date(lastRetrain).toISOString(),
+        lastRetrainedAt: lastRetrain.toISOString(),
         weeksSinceRetrain: weeks,
       };
     })(),
-    overrideRecord: {
-      total: totalOverrides,
-      status: totalOverrides > 0 ? 'tracking' : 'no_overrides',
-      explanation: totalOverrides > 0
-        ? 'Override count is tracked. Human-vs-system outcome comparison requires promoted uplift model.'
-        : 'No human overrides recorded in this period.',
-      humanBetter: null,
-      systemBetter: null,
+    humanReview: {
+      total: totalHumanReviewed,
+      approved: totalApproved,
+      rejected: totalRejected,
+      status: totalHumanReviewed > 0 ? 'tracking' : 'no_reviews',
+      explanation: totalHumanReviewed > 0
+        ? 'Human review decisions tracked. True override comparison (human-vs-system outcome quality) requires promoted uplift model.'
+        : 'No human review decisions recorded in this period.',
+      // These remain null until we can compare outcomes
+      overrideOutcomeComparison: null,
     },
   };
 }

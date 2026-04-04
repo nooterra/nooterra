@@ -872,8 +872,10 @@ async def ingest_graded_outcomes(request: Request):
                 outcome.get("actionAt"),
             )
             stored += 1
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            # Continue processing other outcomes
 
     return JSONResponse({"stored": stored})
 

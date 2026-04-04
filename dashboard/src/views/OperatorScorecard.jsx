@@ -109,9 +109,9 @@ export default function OperatorScorecard() {
               subtitle={formatRate(summary.holdRate)}
             />
             <MetricCard
-              label="Human Overrides"
-              value={summary.totalOverrides}
-              subtitle={formatRate(summary.overrideRate)}
+              label="Human Reviews"
+              value={summary.totalHumanReviewed}
+              subtitle={formatRate(summary.humanReviewRate)}
             />
           </div>
         </div>
@@ -151,20 +151,20 @@ export default function OperatorScorecard() {
           )}
         </div>
 
-        {/* Override Record */}
+        {/* Human Review Decisions */}
         <div className="mb-8">
-          <h3 className="text-sm font-medium text-text-primary mb-3">Override Record</h3>
+          <h3 className="text-sm font-medium text-text-primary mb-3">Human Review Decisions</h3>
           <div className="flex flex-wrap gap-3 mb-2">
-            <MetricCard label="Total Overrides" value={scorecard.overrideRecord?.total ?? 0} />
-            {scorecard.overrideRecord?.humanBetter != null && (
-              <MetricCard label="Human Better" value={scorecard.overrideRecord.humanBetter} />
+            <MetricCard label="Total Reviewed" value={scorecard.humanReview?.total ?? 0} />
+            {scorecard.humanReview?.approved != null && (
+              <MetricCard label="Approved" value={scorecard.humanReview.approved} />
             )}
-            {scorecard.overrideRecord?.systemBetter != null && (
-              <MetricCard label="System Better" value={scorecard.overrideRecord.systemBetter} />
+            {scorecard.humanReview?.rejected != null && (
+              <MetricCard label="Rejected" value={scorecard.humanReview.rejected} />
             )}
           </div>
-          {scorecard.overrideRecord?.humanBetter == null && scorecard.overrideRecord?.explanation && (
-            <p className="text-2xs text-text-tertiary">{scorecard.overrideRecord.explanation}</p>
+          {scorecard.humanReview?.overrideOutcomeComparison == null && scorecard.humanReview?.explanation && (
+            <p className="text-2xs text-text-tertiary">{scorecard.humanReview.explanation}</p>
           )}
         </div>
 
