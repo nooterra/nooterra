@@ -23,6 +23,14 @@ import {
 import { computeUncertaintyProfile } from '../core/uncertainty.js';
 import { loadObjectBeliefs } from '../state/beliefs.js';
 import { evaluateRolloutGate, loadRolloutGate } from '../eval/rollout-gates.js';
+import {
+  inferCollectionsVariantId,
+  buildComparativeActionVariants,
+  transitionDelayDays,
+  nextSequenceOptions,
+  determineCollectionAction,
+  variantStage,
+} from '../domains/ar/scanner.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,12 +202,6 @@ function betaPosteriorSample(alpha: number, beta: number, quantile: number): num
   return clamp(mean + z * Math.sqrt(Math.max(variance, 1e-6)));
 }
 
-function inferCollectionsVariantId(actionClass: string, daysOverdue: number): string | null {
-  if (actionClass === 'strategic.hold') return 'strategic_hold';
-  if (actionClass !== 'communicate.email') return null;
-  return daysOverdue > 14 ? 'email_formal' : 'email_friendly';
-}
-
 async function loadVariantReplayStats(
   pool: pg.Pool,
   tenantId: string,
@@ -365,30 +367,6 @@ function selectReviewSafeExplorationVariant(
     baselineVariantId,
     sampledScore: winner.sampledScore,
   };
-}
-
-function nextSequenceOptions(
-  candidate: ComparativeReplayCandidate,
-  candidates: ComparativeReplayCandidate[] | null,
-  usedVariantIds: Set<string>,
-): ComparativeReplayCandidate[] {
-  if (!candidates?.length || candidate.actionClass === 'task.create') return [];
-  return candidates.filter((option) =>
-    !option.blocked
-    && option.variantId !== candidate.variantId
-    && !usedVariantIds.has(option.variantId)
-    && (
-      option.actionClass === 'task.create'
-      || (candidate.actionClass === 'communicate.email' && option.actionClass === 'communicate.email')
-    ),
-  );
-}
-
-function transitionDelayDays(from: ComparativeReplayCandidate, to: ComparativeReplayCandidate): number {
-  if (from.variantId === 'email_friendly' && to.variantId === 'email_formal') return 4;
-  if (from.variantId === 'email_formal' && to.variantId === 'email_friendly') return 2;
-  if (from.actionClass === 'communicate.email' && to.actionClass === 'task.create') return 3;
-  return 2;
 }
 
 function sequenceStepIncrement(
@@ -573,31 +551,14 @@ export async function generateReactivePlan(
     const normalizedValue = amountCents / maxAmountCents;
 
     // Determine collection stage
-    let actionClass: string;
-    let description: string;
-    const reasoning: string[] = [];
-
-    if (disputeRisk > 0.5) {
-      // High dispute risk → escalate, don't email
-      actionClass = 'task.create';
-      description = `Escalate: Invoice ${state.number ?? invoice.id} ($${(amountCents / 100).toFixed(2)}) — high dispute risk (${(disputeRisk * 100).toFixed(0)}%)`;
-      reasoning.push(`Dispute risk ${(disputeRisk * 100).toFixed(0)}% exceeds threshold`);
-    } else if (daysOverdue > 30) {
-      // 30+ days → Stage 3 escalation
-      actionClass = 'task.create';
-      description = `Escalate: Invoice ${state.number ?? invoice.id} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`;
-      reasoning.push(`${Math.round(daysOverdue)} days overdue (Stage 3)`);
-    } else if (daysOverdue > 14) {
-      // 14-30 days → Stage 2 formal notice
-      actionClass = 'communicate.email';
-      description = `Formal notice: Invoice ${state.number ?? invoice.id} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`;
-      reasoning.push(`${Math.round(daysOverdue)} days overdue (Stage 2)`);
-    } else {
-      // 1-14 days → Stage 1 friendly reminder
-      actionClass = 'communicate.email';
-      description = `Friendly reminder: Invoice ${state.number ?? invoice.id} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`;
-      reasoning.push(`${Math.round(daysOverdue)} days overdue (Stage 1)`);
-    }
+    const { actionClass, description, reasoning: stageReasoning, stage } = determineCollectionAction(
+      daysOverdue,
+      disputeRisk,
+      String(state.number ?? ''),
+      invoice.id,
+      amountCents,
+    );
+    const reasoning: string[] = [stageReasoning];
 
     const actionType = getActionType(actionClass);
     if (!actionType) continue;
@@ -657,7 +618,7 @@ export async function generateReactivePlan(
         amountRemainingCents: state.amountRemainingCents,
         daysOverdue: Math.round(daysOverdue),
         partyId,
-        stage: daysOverdue > 30 ? 3 : daysOverdue > 14 ? 2 : 1,
+        stage,
       },
       targetObject: invoice,
       relatedObjects,
@@ -779,7 +740,7 @@ export async function generateReactivePlan(
         amountRemainingCents: (state.amountRemainingCents as number) ?? amountCents,
         daysOverdue: Math.round(daysOverdue),
         partyId,
-        stage: daysOverdue > 30 ? 3 : daysOverdue > 14 ? 2 : 1,
+        stage,
         recommendedVariantId: explorationVariantId ?? baselineVariantId ?? undefined,
         explorationMode: explorationMode ?? undefined,
         explorationBaselineVariantId: explorationBaselineVariantId ?? undefined,
@@ -817,35 +778,6 @@ export async function generateReactivePlan(
     actions: deduplicatedActions,
     summary: `Generated ${deduplicatedActions.length} action(s) from ${actions.length} candidate(s): ${deduplicatedActions.filter(a => a.actionClass === 'communicate.email').length} emails, ${deduplicatedActions.filter(a => a.actionClass === 'task.create').length} escalations, ${deduplicatedActions.filter(a => a.actionClass === 'strategic.hold').length} holds`,
   };
-}
-
-function buildComparativeActionVariants(
-  amountCents: number,
-  invoiceNumber: string,
-  daysOverdue: number,
-): Array<{ variantId: string; actionClass: string; description: string }> {
-  return [
-    {
-      variantId: 'strategic_hold',
-      actionClass: 'strategic.hold',
-      description: `Strategic hold: Invoice ${invoiceNumber} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue, deliberate wait`,
-    },
-    {
-      variantId: 'email_friendly',
-      actionClass: 'communicate.email',
-      description: `Friendly reminder: Invoice ${invoiceNumber} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`,
-    },
-    {
-      variantId: 'email_formal',
-      actionClass: 'communicate.email',
-      description: `Formal notice: Invoice ${invoiceNumber} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`,
-    },
-    {
-      variantId: 'task_escalation',
-      actionClass: 'task.create',
-      description: `Escalate: Invoice ${invoiceNumber} ($${(amountCents / 100).toFixed(2)}) — ${Math.round(daysOverdue)} days overdue`,
-    },
-  ];
 }
 
 export async function buildComparativeReplay(
@@ -921,7 +853,7 @@ export async function buildComparativeReplay(
         amountRemainingCents: Number(state.amountRemainingCents ?? amountCents),
         daysOverdue: Math.round(daysOverdue),
         partyId,
-        stage: variant.variantId === 'task_escalation' ? 3 : variant.variantId === 'email_formal' ? 2 : 1,
+        stage: variantStage(variant.variantId),
       },
       targetObject: target,
       relatedObjects,
