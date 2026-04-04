@@ -2263,6 +2263,37 @@ export async function handleWorldRuntimeRoute(
     return true;
   }
 
+  if (req.method === 'POST' && pathname === '/v1/world/escrow/batch') {
+    const auth = await requireAuthenticatedWorldWriteContext(req);
+    if (!auth.ok) return error(res, auth.message, auth.status), true;
+
+    const body = parseJsonBody(await readBody(req));
+    const actionIds = body.actionIds as unknown[];
+    const decision = body.decision as string;
+
+    if (!Array.isArray(actionIds) || actionIds.length === 0) {
+      return error(res, 'actionIds must be a non-empty array', 400), true;
+    }
+    if (decision !== 'execute' && decision !== 'reject') {
+      return error(res, 'decision must be "execute" or "reject"', 400), true;
+    }
+
+    const results = [];
+    for (const actionId of (actionIds as unknown[]).slice(0, 50)) {
+      try {
+        const result = await releaseEscrow(pool, auth.tenantId, String(actionId), decision as 'execute' | 'reject', auth.actorId, {
+          executor: createCollectionsExecutor(auth.tenantId),
+        });
+        results.push({ actionId, status: 'ok', result });
+      } catch (err: any) {
+        results.push({ actionId, status: 'error', error: err.message });
+      }
+    }
+
+    json(res, { processed: results.length, results });
+    return true;
+  }
+
   // --- Optimization Report ---
 
   if (req.method === 'GET' && pathname === '/v1/world/optimize') {

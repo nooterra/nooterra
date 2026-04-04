@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   CheckCircle2, ChevronRight, Edit3, FileText, Mail, Pause, XCircle,
 } from 'lucide-react';
-import { getEscrowQueue, releaseEscrow } from '../lib/world-api.js';
+import { getEscrowQueue, releaseEscrow, worldApi } from '../lib/world-api.js';
 
 function parseJson(value, fallback) {
   if (value == null) return fallback;
@@ -39,7 +39,7 @@ function RiskBadge({ action }) {
   );
 }
 
-function ActionCard({ action, onResolve, busy }) {
+function ActionCard({ action, onResolve, busy, selected, onToggleSelect }) {
   const [expanded, setExpanded] = useState(false);
   const parameters = parseJson(action.parameters, {});
   const evidence = parseJson(action.evidence, {});
@@ -59,6 +59,13 @@ function ActionCard({ action, onResolve, busy }) {
     <div className={`rounded-lg border bg-surface-1 border-edge border-l-[3px] ${riskBorder}`}>
       <div className="p-4">
         <div className="flex items-start gap-3 min-w-0">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 w-4 h-4 mt-1.5 rounded border-edge accent-accent"
+          />
           <div className="flex-shrink-0 w-8 h-8 rounded bg-surface-3 flex items-center justify-center mt-0.5">
             {isEmail ? <Mail size={14} className="text-text-secondary" /> : <FileText size={14} className="text-text-secondary" />}
           </div>
@@ -175,6 +182,8 @@ export default function ApprovalQueue() {
   const [actions, setActions] = useState([]);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
 
   async function load() {
     try {
@@ -202,6 +211,42 @@ export default function ApprovalQueue() {
       setError(err.message || 'Failed to resolve escrow action');
     } finally {
       setBusyId('');
+    }
+  }
+
+  function toggleSelection(actionId) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(actionId)) next.delete(actionId);
+      else next.add(actionId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === actions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(actions.map(a => a.id)));
+    }
+  }
+
+  async function handleBatchAction(decision) {
+    setBatchLoading(true);
+    try {
+      await worldApi('/v1/world/escrow/batch', {
+        method: 'POST',
+        body: JSON.stringify({
+          actionIds: [...selectedIds],
+          decision,
+        }),
+      });
+      setSelectedIds(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message || 'Batch action failed');
+    } finally {
+      setBatchLoading(false);
     }
   }
 
@@ -233,15 +278,59 @@ export default function ApprovalQueue() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {actions.map((action) => (
-              <ActionCard
-                key={action.id}
-                action={action}
-                busy={busyId === action.id}
-                onResolve={handleResolve}
+          <div>
+            {/* Select all toggle */}
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === actions.length && actions.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-edge accent-accent"
               />
-            ))}
+              <span className="text-2xs text-text-tertiary">Select all</span>
+            </div>
+
+            {/* Batch action bar */}
+            {selectedIds.size > 0 && (
+              <div className="sticky top-0 z-10 bg-surface-2 border border-edge rounded-lg p-3 mb-4 flex items-center gap-3">
+                <span className="text-sm text-text-secondary">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  onClick={() => handleBatchAction('execute')}
+                  disabled={batchLoading}
+                  className="px-3 py-1.5 bg-status-healthy text-white rounded text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  Approve {selectedIds.size}
+                </button>
+                <button
+                  onClick={() => handleBatchAction('reject')}
+                  disabled={batchLoading}
+                  className="px-3 py-1.5 bg-status-blocked text-white rounded text-xs font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  Reject {selectedIds.size}
+                </button>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-xs text-text-tertiary hover:text-text-secondary ml-auto"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {actions.map((action) => (
+                <ActionCard
+                  key={action.id}
+                  action={action}
+                  busy={busyId === action.id}
+                  onResolve={handleResolve}
+                  selected={selectedIds.has(action.id)}
+                  onToggleSelect={() => toggleSelection(action.id)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
