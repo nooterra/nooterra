@@ -71,21 +71,21 @@ function TraceWalkthrough() {
     {
       phase: 'MODEL',
       title: 'Business graph updated',
-      detail: 'Customer linked: 3 prior invoices (2 on-time, 1 late). 2 active email threads. Last contact 5 days ago.',
+      detail: 'Customer linked: 3 prior invoices (2 on-time, 1 late). 1 completed payment. Stripe state projected into the object graph.',
       meta: '7 objects · 4 relationships',
       accent: T.slate,
     },
     {
       phase: 'PREDICT',
       title: 'Payment probability: 72% within 7 days',
-      detail: 'Customer mentioned "cash flow timing" in recent email. Historical on-time rate: 67%. Dispute risk: 8%.',
+      detail: 'Historical on-time rate: 67%. Amount remaining: $4,200. Dispute risk: 8% from the current Stripe payment trail.',
       meta: 'calibration score 0.82',
       accent: '#7C3AED',
     },
     {
       phase: 'PLAN',
       title: 'Stage 1: Personalized friendly reminder',
-      detail: 'Referencing their specific situation. Empathetic tone — they mentioned cash flow. Include payment link.',
+      detail: 'Generated from invoice age, amount, and prior payment behavior. Include the current payment link and due-state context.',
       meta: 'priority 0.84 · cost $0.003',
       accent: T.gold,
     },
@@ -99,14 +99,14 @@ function TraceWalkthrough() {
     {
       phase: 'ACT',
       title: 'Email sent. Outcome tracked.',
-      detail: 'Prediction model will update when Acme Corp responds or pays. Every action feeds the next prediction.',
+      detail: 'Prediction state updates when Acme Corp pays, disputes, or new governed actions land in the ledger.',
       meta: 'trace complete',
       accent: T.teal,
     },
   ];
 
   return (
-    <div style={{ background: T.ivory, border: `1px solid ${T.rule}`, borderRadius: 2, padding: 0, overflow: 'hidden' }}>
+    <div role="region" aria-label="Interactive system trace walkthrough" style={{ background: T.ivory, border: `1px solid ${T.rule}`, borderRadius: 2, padding: 0, overflow: 'hidden' }}>
       {/* Header bar */}
       <div style={{
         padding: '12px 20px', borderBottom: `1px solid ${T.ruleLight}`,
@@ -189,6 +189,7 @@ function TraceWalkthrough() {
         <button
           onClick={() => setActiveStep(Math.max(0, activeStep - 1))}
           disabled={activeStep === 0}
+          aria-label="Previous step"
           style={{
             fontSize: 11, fontFamily: font.body, fontWeight: 500,
             color: activeStep === 0 ? T.stone : T.iron,
@@ -201,6 +202,7 @@ function TraceWalkthrough() {
         <button
           onClick={() => setActiveStep(Math.min(steps.length - 1, activeStep + 1))}
           disabled={activeStep === steps.length - 1}
+          aria-label="Next step"
           style={{
             fontSize: 11, fontFamily: font.body, fontWeight: 600,
             color: activeStep === steps.length - 1 ? T.stone : T.teal,
@@ -228,23 +230,73 @@ export default function LandingPage() {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
 
+      {/* ═══ RESPONSIVE STYLES ═══ */}
+      <style>{`
+        @media (max-width: 768px) {
+          .landing-nav-inner { padding: 0 16px !important; }
+          .landing-nav-links { gap: 12px !important; }
+          .landing-nav-links a.nav-text-link { display: none !important; }
+          .landing-hero-section { padding: 48px 16px 40px !important; }
+          .landing-hero-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
+          .landing-credibility-strip { flex-direction: column !important; gap: 16px !important; }
+          .landing-social-proof { padding: 32px 16px !important; }
+          .landing-problem-section { padding: 56px 16px !important; }
+          .landing-how-section { padding: 56px 16px !important; }
+          .landing-difference-section { padding: 56px 16px !important; }
+          .landing-difference-table { font-size: 12px !important; }
+          .landing-difference-table td, .landing-difference-table th { padding: 10px 8px !important; }
+          .landing-difference-table td:first-child, .landing-difference-table th:first-child { padding-left: 0 !important; }
+          .landing-trust-section { padding: 56px 16px !important; }
+          .landing-trust-grid { flex-direction: column !important; }
+          .landing-trust-grid > div { border-right: none !important; border-bottom: 1px solid #D6D3CC !important; }
+          .landing-trust-grid > div:last-child { border-bottom: none !important; }
+          .landing-pricing-section { padding: 56px 16px !important; }
+          .landing-pricing-grid { grid-template-columns: 1fr !important; gap: 32px !important; }
+          .landing-pricing-row { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+          .landing-pricing-row-right { flex-direction: row !important; align-items: center !important; }
+          .landing-early-access { flex-direction: column !important; gap: 10px !important; align-items: flex-start !important; padding: 20px 16px !important; }
+          .landing-cta-section { padding: 56px 16px !important; }
+          .landing-cta-h2 { font-size: 28px !important; }
+          .landing-footer { padding: 20px 16px !important; flex-direction: column !important; gap: 16px !important; }
+          .landing-section-inner { padding: 0 16px !important; }
+        }
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .landing-nav-inner { padding: 0 24px !important; }
+          .landing-hero-section { padding: 64px 24px 48px !important; }
+          .landing-hero-grid { grid-template-columns: 1fr !important; gap: 48px !important; }
+          .landing-credibility-strip { flex-wrap: wrap !important; gap: 24px !important; }
+          .landing-social-proof { padding: 40px 24px !important; }
+          .landing-problem-section { padding: 64px 24px !important; }
+          .landing-how-section { padding: 64px 24px !important; }
+          .landing-difference-section { padding: 64px 24px !important; }
+          .landing-trust-section { padding: 64px 24px !important; }
+          .landing-pricing-section { padding: 64px 24px !important; }
+          .landing-pricing-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
+          .landing-early-access { flex-wrap: wrap !important; gap: 16px !important; padding: 20px 24px !important; }
+          .landing-cta-section { padding: 64px 24px !important; }
+          .landing-cta-h2 { font-size: clamp(28px, 4vw, 40px) !important; }
+          .landing-footer { padding: 24px !important; }
+          .landing-section-inner { padding: 0 24px !important; }
+        }
+      `}</style>
+
       {/* ═══ NAV ═══ */}
       <nav style={{
         position: 'sticky', top: 0, zIndex: 50,
         background: `${T.ivory}F0`, backdropFilter: 'blur(12px)',
         borderBottom: `1px solid ${T.ruleLight}`,
       }}>
-        <div style={{
+        <div className="landing-nav-inner" style={{
           maxWidth: 1120, margin: '0 auto', padding: '0 32px',
           height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <span style={{ fontSize: 15, fontWeight: 600, fontFamily: font.body, letterSpacing: '-0.01em', color: T.ink }}>
             nooterra
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <a href="#how" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>How it works</a>
-            <a href="#pricing" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Pricing</a>
-            <a href="/login" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Sign in</a>
+          <div className="landing-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+            <a href="#how" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>How it works</a>
+            <a href="#pricing" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Pricing</a>
+            <a href="/login" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Sign in</a>
             <a href="/setup" style={{
               fontSize: 12, fontWeight: 600, fontFamily: font.body,
               color: T.ivory, background: T.ink, padding: '7px 16px',
@@ -257,8 +309,8 @@ export default function LandingPage() {
       </nav>
 
       {/* ═══ HERO — asymmetric: text left, trace right ═══ */}
-      <section style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px 60px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '5fr 4fr', gap: 64, alignItems: 'start' }}>
+      <section className="landing-hero-section" aria-label="Hero" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px 60px' }}>
+        <div className="landing-hero-grid" style={{ display: 'grid', gridTemplateColumns: '5fr 4fr', gap: 64, alignItems: 'start' }}>
           <div>
             <p style={{
               fontSize: 11, fontFamily: font.mono, fontWeight: 500,
@@ -283,8 +335,8 @@ export default function LandingPage() {
             }}>
               Most AI agents are stateless — they forget everything between
               runs. Nooterra gives agents a persistent world model of your
-              business: every customer, invoice, and conversation, linked
-              and updating in real time. Agents don't guess. They know.
+              business: customers, invoices, payments, disputes, and the
+              policy runtime around them. Agents don't guess. They know.
             </p>
             <div style={{ marginTop: 36, display: 'flex', alignItems: 'center', gap: 16 }}>
               <a href="/setup" style={{
@@ -305,13 +357,13 @@ export default function LandingPage() {
             </div>
 
             {/* Credibility strip — not logos, just text */}
-            <div style={{
+            <div className="landing-credibility-strip" style={{
               marginTop: 56, paddingTop: 24, borderTop: `1px solid ${T.rule}`,
               display: 'flex', gap: 32,
             }}>
               {[
                 { label: 'Models', value: 'OpenAI, Anthropic, Google' },
-                { label: 'Integrations', value: '250+ via Composio' },
+                { label: 'Live source', value: 'Stripe-first in this milestone' },
                 { label: 'Infrastructure', value: 'Railway + Postgres' },
               ].map(({ label, value }) => (
                 <div key={label}>
@@ -333,7 +385,7 @@ export default function LandingPage() {
 
       {/* ═══ SOCIAL PROOF ═══ */}
       <div style={{ borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`, background: T.paper }}>
-        <div style={{
+        <div className="landing-social-proof" style={{
           maxWidth: 720, margin: '0 auto', padding: '40px 32px',
           textAlign: 'center',
         }}>
@@ -348,14 +400,14 @@ export default function LandingPage() {
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
             <span style={{ fontSize: 12, fontFamily: font.body, fontWeight: 500, color: T.iron }}>
-              Now in private beta
+              Stripe-first world runtime, live now
             </span>
           </div>
         </div>
       </div>
 
       {/* ═══ PROBLEM — full-width prose, no cards ═══ */}
-      <section style={{ maxWidth: 640, margin: '0 auto', padding: '80px 32px' }}>
+      <section className="landing-problem-section" style={{ maxWidth: 640, margin: '0 auto', padding: '80px 32px' }}>
         <p style={{
           fontSize: 11, fontFamily: font.mono, fontWeight: 500, color: T.ember,
           letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16,
@@ -383,7 +435,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ HOW IT WORKS — vertical timeline, not cards ═══ */}
-      <section id="how" style={{
+      <section id="how" aria-label="How it works" className="landing-how-section" style={{
         background: T.paper, borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`,
         padding: '80px 32px',
       }}>
@@ -405,8 +457,8 @@ export default function LandingPage() {
           {/* Timeline */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 640 }}>
             {[
-              { step: 'Connect', time: 'Minute 1', body: 'One-click OAuth for Stripe, Gmail, QuickBooks, Calendar. No API keys. No configuration. The system starts observing immediately.' },
-              { step: 'Model', time: 'Minute 10', body: 'Every customer, invoice, payment, and email thread appears in a live, linked object graph. Entity resolution matches records across systems automatically.' },
+              { step: 'Connect', time: 'Minute 1', body: 'Connect Stripe first. The runtime starts recording customer, invoice, payment, and dispute events immediately.' },
+              { step: 'Model', time: 'Minute 10', body: 'Customers, invoices, payments, and disputes appear in a live object graph. Additional sources layer in later without changing the core model.' },
               { step: 'Predict', time: 'Hour 1', body: 'Hidden state estimates appear on every object. Payment probability. Churn risk. Urgency scores. Each prediction shows its confidence level and what evidence it used.' },
               { step: 'Operate', time: 'Day 1', body: 'The collections agent proposes its first actions in shadow mode. You review every one. Nothing sends without your approval. Evidence bundles show exactly why each action was chosen.' },
               { step: 'Trust', time: 'Week 3', body: 'After 20+ proposals with 85%+ quality scores, the system recommends expanding autonomy. You approve. Now routine reminders send automatically. One incident and it stops.' },
@@ -447,7 +499,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ DIFFERENCE — table, not cards ═══ */}
-      <section style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
+      <section className="landing-difference-section" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
         <h2 style={{
           fontSize: 32, fontFamily: font.display, fontWeight: 400,
           lineHeight: 1.15, color: T.ink, marginBottom: 40,
@@ -455,7 +507,8 @@ export default function LandingPage() {
           Why a world model changes<br />everything.
         </h2>
 
-        <table style={{
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <table className="landing-difference-table" style={{
           width: '100%', borderCollapse: 'collapse',
           fontFamily: font.body, fontSize: 13,
         }}>
@@ -486,10 +539,11 @@ export default function LandingPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       {/* ═══ TRUST — horizontal progression, not cards ═══ */}
-      <section style={{
+      <section className="landing-trust-section" style={{
         background: T.paper, borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`,
         padding: '80px 32px',
       }}>
@@ -507,7 +561,7 @@ export default function LandingPage() {
           </p>
 
           {/* Horizontal progression */}
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+          <div className="landing-trust-grid" style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
             {[
               { phase: 'Shadow', range: 'Week 1–2', desc: 'Agent proposes actions. Nothing executes. You see every decision it would make.', score: 'Observe only', color: T.gold },
               { phase: 'Supervised', range: 'Week 3–4', desc: 'Agent drafts actions. You approve with one click. The system tracks your approval patterns.', score: 'Human-in-the-loop', color: T.teal },
@@ -538,8 +592,8 @@ export default function LandingPage() {
       </section>
 
       {/* ═══ PRICING — minimal, asymmetric ═══ */}
-      <section id="pricing" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 64, alignItems: 'start' }}>
+      <section id="pricing" aria-label="Pricing" className="landing-pricing-section" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
+        <div className="landing-pricing-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 64, alignItems: 'start' }}>
           <div>
             <h2 style={{
               fontSize: 32, fontFamily: font.display, fontWeight: 400,
@@ -551,18 +605,20 @@ export default function LandingPage() {
               fontSize: 14, fontFamily: font.body, lineHeight: 1.6,
               color: T.iron, marginTop: 12,
             }}>
-              Start with observation.<br />
-              Add autonomy when you're ready.
+              Design partners first.<br />
+              No-card sandbox after the activation loop is real.
             </p>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {[
-              { name: 'Starter', price: 'Free', desc: 'World model, one agent, shadow mode. See everything before you commit.', highlight: false },
-              { name: 'Business', price: 'Free during beta', desc: 'Full autonomy progression. Policy engine. Unlimited integrations. The whole platform.', highlight: true },
-              { name: 'Enterprise', price: 'Contact us', desc: 'Dedicated infrastructure, custom integrations, priority support, SLAs.', highlight: false },
+              { name: 'Sandbox', price: 'Trial', desc: '14-30 day Stripe-first shadow mode. One runtime, no-card, no autonomous sends.', highlight: false },
+              { name: 'Starter', price: '$99', desc: 'Stripe world model, company state, predictions, and governed collections for the first finance owner.', highlight: true },
+              { name: 'Growth', price: '$299', desc: 'More invoice volume, more operators, deeper gateway workflows, and autonomy progression.', highlight: false },
+              { name: 'Finance Ops', price: '$799+', desc: 'Audit exports, policy control, multi-user operations, and premium support.', highlight: false },
+              { name: 'Enterprise', price: 'Contact us', desc: 'Custom integrations, security review, dedicated infrastructure, and partner rollout support.', highlight: false },
             ].map(({ name, price, desc, highlight }) => (
-              <div key={name} style={{
+              <div key={name} className="landing-pricing-row" style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '24px 0',
                 borderBottom: `1px solid ${T.rule}`,
@@ -575,7 +631,7 @@ export default function LandingPage() {
                   <span style={{ fontSize: 16, fontFamily: font.body, fontWeight: 600, color: T.ink }}>{name}</span>
                   <p style={{ fontSize: 13, fontFamily: font.body, color: T.iron, marginTop: 2, margin: 0 }}>{desc}</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
+                <div className="landing-pricing-row-right" style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
                   <span style={{ fontSize: 20, fontFamily: font.display, fontWeight: 400, color: T.ink }}>
                     {price}<span style={{ fontSize: 13, color: T.stone }}>{price.startsWith('$') ? '/mo' : ''}</span>
                   </span>
@@ -586,7 +642,7 @@ export default function LandingPage() {
                     border: highlight ? 'none' : `1px solid ${T.rule}`,
                     padding: '8px 16px', borderRadius: 2, textDecoration: 'none',
                   }}>
-                    {name === 'Enterprise' ? 'Contact us' : 'Get started'}
+                    {name === 'Enterprise' ? 'Contact us' : name === 'Sandbox' ? 'Start setup' : 'Start setup'}
                   </a>
                 </div>
               </div>
@@ -599,13 +655,13 @@ export default function LandingPage() {
       <div style={{
         maxWidth: 1120, margin: '0 auto', padding: '0 32px',
       }}>
-        <div style={{
+        <div className="landing-early-access" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24,
           padding: '20px 0',
         }}>
           {[
-            '250+ integrations via OAuth',
-            'Free during beta — no credit card required',
+            'Stripe is the only live world-model source in this milestone',
+            'Conversation sources arrive after the Stripe-first loop is calibrated',
           ].map((text, i) => (
             <span key={i} style={{
               fontSize: 12, fontFamily: font.body, color: T.stone,
@@ -619,12 +675,12 @@ export default function LandingPage() {
       </div>
 
       {/* ═══ FINAL CTA — stark, confident ═══ */}
-      <section style={{
+      <section className="landing-cta-section" style={{
         borderTop: `1px solid ${T.rule}`,
         padding: '80px 32px',
         textAlign: 'center',
       }}>
-        <h2 style={{
+        <h2 className="landing-cta-h2" style={{
           fontSize: 40, fontFamily: font.display, fontWeight: 400,
           lineHeight: 1.1, color: T.ink, marginBottom: 16,
         }}>
@@ -641,12 +697,12 @@ export default function LandingPage() {
           color: T.ivory, background: T.ink, padding: '14px 32px',
           borderRadius: 2, textDecoration: 'none', marginTop: 32,
         }}>
-          Get started free <ArrowRight size={14} />
+          Start Stripe setup <ArrowRight size={14} />
         </a>
       </section>
 
       {/* ═══ FOOTER ═══ */}
-      <footer style={{
+      <footer className="landing-footer" style={{
         borderTop: `1px solid ${T.rule}`, padding: '24px 32px',
         maxWidth: 1120, margin: '0 auto',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
