@@ -1099,7 +1099,7 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [actionCounts, outcomeCounts, overrideCounts] = await Promise.all([
+  const [actionCounts, outcomeCounts, overrideCounts, abstentionCounts] = await Promise.all([
     pool.query(
       `SELECT
           action_class,
@@ -1127,6 +1127,13 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
           AND status IN ('denied', 'escrowed')
           AND auth_decision = 'require_approval'`,
       [tenantId, thirtyDaysAgo.toISOString()],
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count
+        FROM world_autonomy_coverage
+        WHERE tenant_id = $1
+          AND enforcement_state = 'abstained'`,
+      [tenantId],
     ),
   ]);
 
@@ -1160,6 +1167,7 @@ async function buildOperatorScorecard(pool: pg.Pool, tenantId: string) {
       totalActions,
       totalHolds,
       totalOverrides,
+      defensiveAbstentions: Number(abstentionCounts.rows[0]?.count ?? 0),
       holdRate: totalActions > 0 ? totalHolds / totalActions : 0,
       overrideRate: totalActions > 0 ? totalOverrides / totalActions : 0,
     },
