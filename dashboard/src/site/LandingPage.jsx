@@ -50,7 +50,7 @@ const T = {
 const font = {
   display: "'Instrument Serif', 'Georgia', serif",
   body: "'Satoshi', 'DM Sans', system-ui, sans-serif",
-  mono: "'JetBrains Mono', 'SF Mono', monospace",
+  mono: "'Geist Mono', 'SF Mono', monospace",
 };
 
 // ---------------------------------------------------------------------------
@@ -224,11 +224,6 @@ function TraceWalkthrough() {
 export default function LandingPage() {
   return (
     <div style={{ background: T.ivory, color: T.ink, minHeight: '100vh' }}>
-
-      {/* Font imports */}
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-      <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
 
       {/* ═══ RESPONSIVE STYLES ═══ */}
       <style>{`
