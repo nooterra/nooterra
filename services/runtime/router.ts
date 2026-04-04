@@ -12,6 +12,7 @@ import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBi
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import { handleWorkerRoute } from './workers-api.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect } from './integrations.js';
+import { encryptCredential } from './crypto-utils.js';
 import { handleWorldRuntimeRoute } from '../../src/api/world-runtime-routes.js';
 
 // ---------------------------------------------------------------------------
@@ -285,6 +286,62 @@ export function createRequestHandler(deps: RouterDeps) {
       if (handled) return;
     }
 
+    // --- Stripe API Key (BYOK) ---
+    if (req.method === 'POST' && pathname === '/v1/integrations/stripe/key') {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) { res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+
+        const body = await readBody(req);
+        const { apiKey } = JSON.parse(body);
+
+        if (!apiKey || typeof apiKey !== 'string' || !apiKey.startsWith('sk_')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid Stripe API key. Must start with sk_live_ or sk_test_' }));
+          return;
+        }
+
+        // Validate key by calling Stripe API
+        try {
+          const stripeRes = await fetch('https://api.stripe.com/v1/balance', {
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+          });
+          if (!stripeRes.ok) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Stripe API key validation failed. Check your key and try again.' }));
+            return;
+          }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Could not reach Stripe API. Try again.' }));
+          return;
+        }
+
+        // Encrypt and store
+        const encrypted = encryptCredential(apiKey);
+        const id = `int_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        await pool.query(
+          `INSERT INTO tenant_integrations (id, tenant_id, service, status, credentials_encrypted, metadata, connected_at, updated_at)
+           VALUES ($1, $2, 'stripe', 'connected', $3, $4::jsonb, now(), now())
+           ON CONFLICT (tenant_id, service) DO UPDATE SET
+             credentials_encrypted = EXCLUDED.credentials_encrypted,
+             status = 'connected',
+             metadata = EXCLUDED.metadata,
+             updated_at = now()`,
+          [id, tenantId, encrypted, JSON.stringify({ method: 'api_key', keyPrefix: apiKey.slice(0, 7) + '...' })],
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, service: 'stripe', status: 'connected' }));
+      } catch (err: any) {
+        log('error', `Stripe key storage error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to store API key' }));
+      }
+      return;
+    }
+
     // --- Integration routes (Composio) ---
     const authMatch = pathname.match(/^\/v1\/integrations\/([\w_]+)\/authorize$/);
     if (req.method === 'GET' && authMatch) {
@@ -299,7 +356,7 @@ export function createRequestHandler(deps: RouterDeps) {
     }
 
     if (req.method === 'GET' && pathname === '/v1/integrations/status') {
-      handleIntegrationStatus(req, res);
+      handleIntegrationStatus(req, res, pool);
       return;
     }
 

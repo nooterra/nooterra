@@ -107,8 +107,9 @@ export async function handleAuthorize(req, res, toolkit) {
 /**
  * GET /v1/integrations/status
  * Returns which toolkits are connected for this tenant.
+ * Also checks BYOK integrations stored in tenant_integrations table.
  */
-export async function handleStatus(req, res) {
+export async function handleStatus(req, res, pool) {
   const tenantId = await getAuthenticatedTenantId(req);
   if (!tenantId) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -116,10 +117,34 @@ export async function handleStatus(req, res) {
     return;
   }
 
+  const integrations = {};
+
+  // Check BYOK integrations (stored in tenant_integrations)
+  if (pool) {
+    try {
+      const byokResult = await pool.query(
+        `SELECT service, status, metadata, connected_at FROM tenant_integrations
+         WHERE tenant_id = $1 AND status = 'connected'`,
+        [tenantId],
+      );
+      for (const row of byokResult.rows) {
+        integrations[row.service] = {
+          connected: true,
+          method: row.metadata?.method || 'api_key',
+          keyPrefix: row.metadata?.keyPrefix || null,
+          connectedAt: row.connected_at,
+          status: row.status,
+        };
+      }
+    } catch (err) {
+      log('warn', `BYOK status check failed: ${err.message}`);
+    }
+  }
+
   const client = getClient();
   if (!client) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ integrations: {}, configured: false }));
+    res.end(JSON.stringify({ integrations, configured: false }));
     return;
   }
 
@@ -129,7 +154,6 @@ export async function handleStatus(req, res) {
       statuses: ['ACTIVE'],
     });
 
-    const integrations = {};
     for (const conn of (connections.items || [])) {
       const toolkit = conn.appName || conn.toolkitSlug || conn.authConfigId || 'unknown';
       integrations[toolkit] = {
