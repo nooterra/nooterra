@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark" style="background:#0a0a0f">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -34,8 +34,21 @@
     <link rel="preconnect" href="https://api.fontshare.com" />
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet" />
 
+    <!-- Prevent flash of dark background on the light landing page.
+         This script runs synchronously before any React render. -->
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        if (p === '/' || p === '/home') {
+          document.documentElement.style.background = '#FAFAF7';
+          document.documentElement.style.color = '#1A1A1A';
+          document.documentElement.style.setProperty('--body-bg', '#FAFAF7');
+        }
+      })();
+    </script>
+
     <style>
-      html, body { margin: 0; background: #0a0a0f; color: #e8e9ed; }
+      html, body { margin: 0; background: var(--body-bg, #0a0a0f); color: #e8e9ed; }
       * { box-sizing: border-box; }
       ::selection { background: #4f8ff740; color: #e8e9ed; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
