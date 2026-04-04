@@ -21,6 +21,7 @@ import { coverageMap } from '../bridge.js';
 import { generateOptimizationReport } from '../agents/optimizer.js';
 import { getPendingEscrow, releaseEscrow } from '../gateway/gateway.js';
 import { COLLECTIONS_TOOLS, createCollectionsAgent, createCollectionsGrant } from '../domains/ar/runtime.js';
+import { createDefaultArObjectives } from '../domains/ar/objectives.js';
 import { grantAuthority } from '../policy/authority-graph.ts';
 import { normalizeWorkerRuntimePolicyOverrides } from '../../services/runtime/runtime-policy-store.js';
 import { getAuthenticatedTenantId, validateSession } from '../../services/runtime/auth.js';
@@ -743,6 +744,10 @@ async function ensureCollectionsRuntime(
   const grant = existingGrant
     ? { id: existingGrant.id }
     : await grantAuthority(pool, createCollectionsGrant(tenantId, actorId, worker.id));
+
+  // Seed default AR objectives for this tenant (idempotent upsert)
+  const defaultObjectives = createDefaultArObjectives(tenantId);
+  await upsertTenantObjectives(pool, defaultObjectives);
 
   const policy = normalizeWorkerRuntimePolicyOverrides({
     version: 1,
