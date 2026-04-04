@@ -2396,5 +2396,32 @@ export async function handleWorldRuntimeRoute(
     return true;
   }
 
+  // --- Reconciliation ---
+  if (req.method === 'GET' && pathname === '/v1/world/reconciliation/stripe') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+
+    const keyResult = await pool.query(
+      `SELECT credentials_encrypted FROM tenant_integrations
+       WHERE tenant_id = $1 AND service = 'stripe' AND status = 'connected'`,
+      [tenantId],
+    );
+    if (!keyResult.rows[0]?.credentials_encrypted) {
+      return error(res, 'No Stripe integration connected', 400), true;
+    }
+
+    const { decryptCredential } = await import('../../services/runtime/crypto-utils.js');
+    let apiKey;
+    try {
+      apiKey = decryptCredential(keyResult.rows[0].credentials_encrypted);
+    } catch {
+      return error(res, 'Cannot decrypt Stripe credential', 503), true;
+    }
+
+    const { reconcileStripeData } = await import('./reconciliation.js');
+    const report = await reconcileStripeData(pool, tenantId, apiKey);
+    json(res, report);
+    return true;
+  }
+
   return false; // Route not handled
 }
