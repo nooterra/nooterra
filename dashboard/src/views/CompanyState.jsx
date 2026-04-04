@@ -87,7 +87,7 @@ function DetailPanel({ object, related, history, loading, onClose }) {
   const estimatedEntries = Object.entries(object.estimated || {});
 
   return (
-    <div className="animate-fade-in border-l border-edge bg-surface-1 w-[420px] flex-shrink-0 overflow-y-auto">
+    <div className="panel-enter border-l border-edge bg-surface-1 w-[420px] flex-shrink-0 overflow-y-auto">
       <div className="sticky top-0 bg-surface-1 border-b border-edge-subtle p-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon size={14} className="text-text-secondary" />
@@ -145,7 +145,13 @@ function DetailPanel({ object, related, history, loading, onClose }) {
             <span className="text-2xs text-text-tertiary uppercase tracking-wider">Relationships</span>
           </div>
           {loading ? (
-            <p className="text-xs text-text-tertiary">Loading relationships...</p>
+            <div className="space-y-3 p-4">
+              <div className="skeleton h-4 w-3/4"></div>
+              <div className="skeleton h-3 w-1/2"></div>
+              <div className="skeleton h-3 w-2/3"></div>
+              <div className="skeleton h-8 w-full mt-4"></div>
+              <div className="skeleton h-3 w-1/3"></div>
+            </div>
           ) : related.length === 0 ? (
             <p className="text-xs text-text-tertiary">No related objects recorded yet.</p>
           ) : (
@@ -167,7 +173,13 @@ function DetailPanel({ object, related, history, loading, onClose }) {
             <span className="text-2xs text-text-tertiary uppercase tracking-wider">Event ledger</span>
           </div>
           {loading ? (
-            <p className="text-xs text-text-tertiary">Loading events...</p>
+            <div className="space-y-3 p-4">
+              <div className="skeleton h-4 w-3/4"></div>
+              <div className="skeleton h-3 w-1/2"></div>
+              <div className="skeleton h-3 w-2/3"></div>
+              <div className="skeleton h-8 w-full mt-4"></div>
+              <div className="skeleton h-3 w-1/3"></div>
+            </div>
           ) : history.length === 0 ? (
             <p className="text-xs text-text-tertiary">No events reference this object yet.</p>
           ) : (

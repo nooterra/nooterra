@@ -54,7 +54,7 @@ function DetailPanel({ selection, onClose }) {
   const config = LEVEL_CONFIG[selection.currentLevel] || LEVEL_CONFIG.human_approval;
 
   return (
-    <div className="animate-fade-in border-l border-edge bg-surface-1 p-5 w-80 flex-shrink-0 overflow-y-auto">
+    <div className="panel-enter border-l border-edge bg-surface-1 p-5 w-80 flex-shrink-0 overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-text-primary">Coverage detail</h3>
         <button onClick={onClose} className="text-text-tertiary hover:text-text-secondary">
