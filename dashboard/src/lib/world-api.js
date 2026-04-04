@@ -2,7 +2,7 @@
  * World Runtime API client for dashboard views.
  *
  * Wraps fetch calls to /v1/world/* endpoints.
- * Falls back to mock data when the API is unavailable (dev mode).
+ * World-model views should render truthful empty states instead of synthetic demo data.
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -16,12 +16,13 @@ function getTenantId() {
   }
 }
 
-async function worldApi(path, options = {}) {
+export async function worldApi(path, options = {}) {
   const tenantId = getTenantId();
   const url = `${API_BASE}${path}`;
 
   const res = await fetch(url, {
     method: options.method || 'GET',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
@@ -64,6 +65,7 @@ export async function getEvent(eventId) {
 export async function getObjects(params = {}) {
   const query = new URLSearchParams();
   if (params.type) query.set('type', params.type);
+  if (params.q) query.set('q', params.q);
   if (params.limit) query.set('limit', String(params.limit));
   if (params.offset) query.set('offset', String(params.offset));
   return worldApi(`/v1/world/objects?${query}`);
@@ -123,10 +125,10 @@ export async function getEscrowQueue() {
   return worldApi('/v1/world/escrow');
 }
 
-export async function releaseEscrow(actionId, decision, decidedBy = 'human') {
+export async function releaseEscrow(actionId, decision) {
   return worldApi(`/v1/world/escrow/${actionId}/release`, {
     method: 'POST',
-    body: { decision, decidedBy },
+    body: { decision },
   });
 }
 
@@ -144,6 +146,32 @@ export async function getOptimizationReport() {
 
 export async function getWorldStats() {
   return worldApi('/v1/world/stats');
+}
+
+export async function getWorldOverview() {
+  return worldApi('/v1/world/overview');
+}
+
+export async function launchCollectionsRuntime(payload = {}) {
+  return worldApi('/v1/world/runtimes/ar-collections', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Policy Runtime
+// ---------------------------------------------------------------------------
+
+export async function getRuntimePolicy() {
+  return worldApi('/v1/workers/runtime-policy');
+}
+
+export async function putRuntimePolicy(policy) {
+  return worldApi('/v1/workers/runtime-policy', {
+    method: 'PUT',
+    body: policy,
+  });
 }
 
 // ---------------------------------------------------------------------------
