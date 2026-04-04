@@ -210,6 +210,12 @@ function StepConnect({ tenantId, onComplete }) {
       const data = await res.json();
       if (data.ok) {
         setStripeConnected(true);
+        // Trigger historical data backfill in background
+        fetch(`${API_BASE}/v1/integrations/stripe/backfill`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+          credentials: 'include',
+        }).catch(() => {}); // Fire-and-forget, sync progress polling handles UI
       } else {
         setError(data.error || 'Connection failed');
       }

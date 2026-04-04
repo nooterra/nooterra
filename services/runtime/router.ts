@@ -66,6 +66,126 @@ function readBodyRaw(req: IncomingMessage): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
+// Stripe historical data backfill
+// ---------------------------------------------------------------------------
+
+async function backfillStripeData(
+  pool: pg.Pool,
+  tenantId: string,
+  apiKey: string,
+  log: (level: string, msg: string) => void,
+): Promise<void> {
+  const headers = { 'Authorization': `Bearer ${apiKey}` };
+  const { onStripeWebhook } = await import('../../src/bridge.js');
+
+  let totalIngested = 0;
+
+  // --- Customers ---
+  let hasMore = true;
+  let startingAfter: string | undefined;
+  while (hasMore) {
+    const url = new URL('https://api.stripe.com/v1/customers');
+    url.searchParams.set('limit', '100');
+    if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) {
+      log('warn', `Stripe backfill: customers fetch failed (${res.status})`);
+      break;
+    }
+    const data = await res.json();
+
+    for (const customer of data.data || []) {
+      try {
+        await onStripeWebhook(pool, tenantId, {
+          type: 'customer.created',
+          data: { object: customer },
+        });
+        totalIngested++;
+      } catch (err: any) {
+        log('warn', `Backfill customer ${customer.id}: ${err.message}`);
+      }
+    }
+
+    hasMore = data.has_more;
+    startingAfter = data.data?.[data.data.length - 1]?.id;
+  }
+
+  // --- Invoices (all statuses) ---
+  for (const status of ['open', 'paid', 'uncollectible', 'void']) {
+    hasMore = true;
+    startingAfter = undefined;
+    while (hasMore) {
+      const url = new URL('https://api.stripe.com/v1/invoices');
+      url.searchParams.set('limit', '100');
+      url.searchParams.set('status', status);
+      if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+      const res = await fetch(url.toString(), { headers });
+      if (!res.ok) {
+        log('warn', `Stripe backfill: invoices (${status}) fetch failed (${res.status})`);
+        break;
+      }
+      const data = await res.json();
+
+      const eventType = status === 'paid' ? 'invoice.paid'
+        : status === 'void' ? 'invoice.voided'
+        : 'invoice.created';
+
+      for (const invoice of data.data || []) {
+        try {
+          await onStripeWebhook(pool, tenantId, {
+            type: eventType,
+            data: { object: invoice },
+          });
+          totalIngested++;
+        } catch (err: any) {
+          log('warn', `Backfill invoice ${invoice.id}: ${err.message}`);
+        }
+      }
+
+      hasMore = data.has_more;
+      startingAfter = data.data?.[data.data.length - 1]?.id;
+    }
+  }
+
+  // --- Payment Intents (succeeded only) ---
+  hasMore = true;
+  startingAfter = undefined;
+  while (hasMore) {
+    const url = new URL('https://api.stripe.com/v1/payment_intents');
+    url.searchParams.set('limit', '100');
+    if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) {
+      log('warn', `Stripe backfill: payment_intents fetch failed (${res.status})`);
+      break;
+    }
+    const data = await res.json();
+
+    for (const pi of data.data || []) {
+      if (pi.status === 'succeeded') {
+        try {
+          await onStripeWebhook(pool, tenantId, {
+            type: 'payment_intent.succeeded',
+            data: { object: pi },
+          });
+          totalIngested++;
+        } catch (err: any) {
+          log('warn', `Backfill payment ${pi.id}: ${err.message}`);
+        }
+      }
+    }
+
+    hasMore = data.has_more;
+    startingAfter = data.data?.[data.data.length - 1]?.id;
+  }
+
+  log('info', `Stripe backfill complete for ${tenantId}: ${totalIngested} objects ingested`);
+}
+
+// ---------------------------------------------------------------------------
 // Route handler factory
 // ---------------------------------------------------------------------------
 
@@ -338,6 +458,43 @@ export function createRequestHandler(deps: RouterDeps) {
         log('error', `Stripe key storage error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Failed to store API key' }));
+      }
+      return;
+    }
+
+    // --- Stripe historical data backfill ---
+    if (req.method === 'POST' && pathname === '/v1/integrations/stripe/backfill') {
+      try {
+        const tenantId = req.headers['x-tenant-id'] as string;
+        if (!tenantId) { res.writeHead(401); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+
+        // Get encrypted API key
+        const keyResult = await pool.query(
+          `SELECT credentials_encrypted FROM tenant_integrations
+           WHERE tenant_id = $1 AND service = 'stripe' AND status = 'connected'`,
+          [tenantId],
+        );
+        if (!keyResult.rows[0]?.credentials_encrypted) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No Stripe API key connected' }));
+          return;
+        }
+
+        const { decryptCredential } = await import('./crypto-utils.js');
+        const apiKey = decryptCredential(keyResult.rows[0].credentials_encrypted);
+
+        // Fetch and ingest in background — respond immediately
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, status: 'backfill_started' }));
+
+        // Background backfill
+        backfillStripeData(pool, tenantId, apiKey, log).catch((err: any) => {
+          log('error', `Stripe backfill failed for ${tenantId}: ${err.message}`);
+        });
+      } catch (err: any) {
+        log('error', `Stripe backfill error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to start backfill' }));
       }
       return;
     }
