@@ -165,7 +165,7 @@ Design target: Stripe/Ramp tier. Clean, minimal, product-led.
 **Step 2 — Meet Your Employee.** Role card: "Riley — Collections Specialist. Monitors overdue invoices, sends evidence-backed follow-ups, escalates when uncertain." User can rename. 3-4 boundary sliders pre-filled from role template defaults:
 - Maximum autonomous action value ($)
 - Contact frequency limit (per account per week)
-- Require approval for accounts over $X ARR
+- Require approval for invoices over $X
 - Business hours only (toggle + timezone)
 
 The first two map to existing `GrantScope` and `GrantConstraints` fields. "Invoices over $X" maps to the `high_value_escalates_to_approval` constraint, which currently uses a hardcoded $5,000 threshold in `isHighValueCommunication()` in `src/core/objectives.ts`. To make this configurable, the threshold must be parameterized (read from tenant objectives config instead of hardcoded). This requires a small change to `src/core/objectives.ts`. "Business hours only" maps to the `outside_business_hours_requires_approval` constraint. All are set at grant/objectives creation time. Changes after onboarding use revoke-and-recreate (no in-place grant update exists).
@@ -254,7 +254,7 @@ dashboard/src/views/onboarding/Activate.jsx
 dashboard/src/lib/employee-api.js
 ```
 
-**Modified files (6 backend, 3 frontend):**
+**Modified files (7 backend/services, 3 frontend):**
 
 | File | Change |
 |---|---|
@@ -282,7 +282,7 @@ Connect Stripe (API key → encrypted credential storage in router.ts)
   → Trigger backfill (router.ts → Stripe API → connector.ts → applyConnectorResult())
   → World model populates:
     → world_objects: parties (customers), invoices, payments
-    → world_relationships: customer_of, pays
+    → world_relationships: pays (customer → invoice only; no other relationship types materialized by current Stripe connector)
     → world_events: observation events, hash-chained per tenant
     → Disputes: event-only awareness (no dispute objects or relationships).
       The current Stripe connector (`src/observation/connectors/stripe.ts`)
