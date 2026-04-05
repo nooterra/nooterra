@@ -219,6 +219,7 @@ function rowToObjectives(tenantId: string, row: any): TenantObjectives {
       targetValue: objective?.targetValue == null ? undefined : Number(objective.targetValue),
     })),
     constraints: normalizeJsonArray(row?.constraints).map((constraintId) => String(constraintId)),
+    constraintConfig: row?.constraint_config || {},
   };
 }
 
@@ -227,7 +228,7 @@ export async function loadTenantObjectives(
   tenantId: string,
 ): Promise<TenantObjectives> {
   const result = await pool.query(
-    `SELECT objectives, constraints
+    `SELECT objectives, constraints, constraint_config
        FROM tenant_objectives
       WHERE tenant_id = $1
       LIMIT 1`,
@@ -257,13 +258,14 @@ export async function upsertTenantObjectives(
   }
 
   await pool.query(
-    `INSERT INTO tenant_objectives (tenant_id, objectives, constraints, created_at, updated_at)
-     VALUES ($1,$2::jsonb,$3::jsonb,now(),now())
+    `INSERT INTO tenant_objectives (tenant_id, objectives, constraints, constraint_config, created_at, updated_at)
+     VALUES ($1,$2::jsonb,$3::jsonb,$4::jsonb,now(),now())
      ON CONFLICT (tenant_id) DO UPDATE SET
        objectives = EXCLUDED.objectives,
        constraints = EXCLUDED.constraints,
+       constraint_config = EXCLUDED.constraint_config,
        updated_at = now()`,
-    [input.tenantId, JSON.stringify(input.objectives), JSON.stringify(input.constraints)],
+    [input.tenantId, JSON.stringify(input.objectives), JSON.stringify(input.constraints), JSON.stringify(input.constraintConfig ?? {})],
   );
 
   return input;

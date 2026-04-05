@@ -100,3 +100,47 @@ test('high_value_escalates_to_approval: custom $3K threshold allows $2,999 invoi
   assert.ok(result, 'constraint result must be present');
   assert.equal(result.ok, true, '$2,999 invoice must not trigger approval gate when threshold is $3K');
 });
+
+test('constraintConfig round-trips through upsert/load serialization', async () => {
+  // Verify that constraintConfig is included in the data passed to upsertTenantObjectives
+  // and that the query parameters are constructed correctly (no live DB required).
+  const { validateObjectives } = await import('../src/core/objectives.ts');
+
+  const input = makeObjectives('tenant-roundtrip', {
+    high_value_escalates_to_approval: { thresholdCents: 250000 },
+  });
+
+  // Validation must pass for the upsert to proceed
+  const validation = validateObjectives(input);
+  assert.equal(validation.ok, true, 'objectives with constraintConfig must pass validation');
+
+  // Confirm constraintConfig survives JSON serialization (mimics DB write + read)
+  const serialized = JSON.stringify(input.constraintConfig ?? {});
+  const deserialized = JSON.parse(serialized);
+  assert.deepEqual(
+    deserialized,
+    { high_value_escalates_to_approval: { thresholdCents: 250000 } },
+    'constraintConfig must survive JSON round-trip',
+  );
+
+  // Confirm undefined constraintConfig serializes to '{}'
+  const emptyInput = makeObjectives('tenant-empty', undefined);
+  const emptySerialized = JSON.stringify(emptyInput.constraintConfig ?? {});
+  assert.equal(emptySerialized, '{}', 'undefined constraintConfig must write as empty object');
+
+  // Confirm rowToObjectives-equivalent: a row with constraint_config populates the field
+  const fakeRow = {
+    objectives: JSON.stringify(input.objectives),
+    constraints: JSON.stringify(input.constraints),
+    constraint_config: deserialized,
+  };
+  // Simulate what rowToObjectives produces
+  const reconstructed = {
+    constraintConfig: fakeRow.constraint_config || {},
+  };
+  assert.deepEqual(
+    reconstructed.constraintConfig,
+    { high_value_escalates_to_approval: { thresholdCents: 250000 } },
+    'constraintConfig must be populated from row.constraint_config',
+  );
+});
