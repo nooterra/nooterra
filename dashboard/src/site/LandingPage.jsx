@@ -24,59 +24,59 @@ const FONTS = {
 const EASE = [0.16, 1, 0.3, 1];
 
 const PROOF_POINTS = [
-  { label: 'Stripe setup', value: '60 seconds' },
-  { label: 'Every decision', value: 'Evidence + audit trail' },
-  { label: 'Go-live model', value: 'Approval-first' },
+  { label: 'Setup', value: 'Connect Stripe in 60 seconds' },
+  { label: 'Every action', value: 'Evidence trail + your approval' },
+  { label: 'Day one', value: 'Starts in review mode, earns autonomy' },
 ];
 
 const HOW_STEPS = [
   {
     step: '01',
     title: 'Connect Stripe',
-    body: 'Add your Stripe key. Nooterra backfills customers, invoices, payments, and dispute signals in minutes.',
+    body: 'One API key. Nooterra reads your customers, invoices, payments, and disputes. Full picture in minutes.',
   },
   {
     step: '02',
-    title: 'Set your policies',
-    body: 'Set approval thresholds, outreach cadence, and business-hours guardrails. Riley follows them on every recommendation.',
+    title: 'Set the rules',
+    body: 'Dollar thresholds, contact limits, business hours. You define the boundaries. The system enforces them on every action.',
   },
   {
     step: '03',
-    title: 'Review flagged decisions',
-    body: 'Riley ranks overdue accounts, recommends the next action, and shows the evidence behind it. Your team approves or rejects.',
+    title: 'Review with evidence',
+    body: 'Each recommendation comes with the payment history, dispute status, and reasoning behind it. Approve or reject in one click.',
   },
   {
     step: '04',
-    title: 'Watch it sharpen',
-    body: 'Payment outcomes feed back in. Coverage expands, confidence improves, and more decisions move out of the review lane over time.',
+    title: 'Earn autonomy',
+    body: 'As outcomes improve, more actions move out of the review lane. You stay in control of what that threshold is.',
   },
 ];
 
 const STRIPE_HANDLES = [
-  'Payment retries and standard dunning',
-  'Invoice delivery and payment collection',
-  'Basic subscription billing',
+  'Retries the payment method on file',
+  'Sends the same dunning email to every customer',
+  'Gives you a list of overdue invoices',
 ];
 
-const NOOTERRA_GOVERNS = [
-  'Which overdue accounts need a follow-up now',
-  'Which invoices should wait vs. escalate',
-  'When dispute signals should block outreach',
-  'Which actions can move automatically vs. stay in review',
+const NOOTERRA_HANDLES = [
+  'Reads the full payment history before deciding what to do',
+  'Sends different follow-ups to different customers based on their pattern',
+  'Holds outreach when there\'s an active dispute',
+  'Escalates to your team when the situation is ambiguous',
 ];
 
 const TRUST_POINTS = [
   {
-    title: 'Approval-first',
-    body: 'Riley recommends first. Your team signs off until trust is earned.',
+    title: 'Nothing happens without you',
+    body: 'Every follow-up is proposed, not sent. You approve each action until the system earns enough track record to act on its own.',
   },
   {
-    title: 'Policy enforced',
-    body: 'Approval thresholds, outreach cadence, and dispute blocks are enforced on every action.',
+    title: 'Your rules, not ours',
+    body: 'You set the dollar limits, contact frequency, and escalation triggers. The system enforces them — it cannot override your policies.',
   },
   {
-    title: 'Full audit trail',
-    body: 'Every recommendation, approval, override, and outcome. Immutable. Exportable. Audit-ready.',
+    title: 'Every decision is recorded',
+    body: 'What was recommended, what evidence supported it, what you decided, and what happened after. Exportable. Audit-ready.',
   },
 ];
 
@@ -137,9 +137,19 @@ function SectionLabel({ children }) {
 function DecisionDossierMockup() {
   const reducedMotion = useReducedMotion();
 
+  // Staggered reveal — each section appears as if the system is analyzing
+  function reveal(delay) {
+    if (reducedMotion) return {};
+    return {
+      initial: { opacity: 0, y: 8 },
+      whileInView: { opacity: 1, y: 0 },
+      transition: { duration: 0.5, delay, ease: EASE },
+      viewport: { once: true, margin: '-20px' },
+    };
+  }
+
   return (
-    <motion.aside
-      {...loadProps(reducedMotion, 0.12)}
+    <aside
       className="w-full border"
       style={{
         background: PALETTE.panel,
@@ -147,7 +157,9 @@ function DecisionDossierMockup() {
         boxShadow: '0 22px 50px rgba(23,20,17,0.10)',
       }}
     >
-      <div
+      {/* Header */}
+      <motion.div
+        {...reveal(0)}
         className="flex items-center justify-between gap-4 border-b px-4 py-3 text-[11px] uppercase tracking-[0.18em] sm:px-5"
         style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}
       >
@@ -156,10 +168,11 @@ function DecisionDossierMockup() {
           <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.amber }} />
           Awaiting approval
         </span>
-      </div>
+      </motion.div>
 
-      <div className="border-b px-4 py-4 sm:px-5" style={{ borderColor: PALETTE.line }}>
-        <motion.div {...loadProps(reducedMotion, 0.24)} className="flex items-start justify-between gap-4">
+      {/* Customer info — first to appear */}
+      <motion.div {...reveal(0.15)} className="border-b px-4 py-4 sm:px-5" style={{ borderColor: PALETTE.line }}>
+        <div className="flex items-start justify-between gap-4">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
               Customer
@@ -180,21 +193,40 @@ function DecisionDossierMockup() {
             </div>
             <div className="mt-1 text-xl font-medium">03 / 48</div>
           </div>
-        </motion.div>
-      </div>
+        </div>
+      </motion.div>
 
+      {/* Analysis — appears after customer loads */}
       <div className="grid border-b md:grid-cols-[1.25fr_0.95fr]" style={{ borderColor: PALETTE.line }}>
-        <motion.div {...loadProps(reducedMotion, 0.34)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
+        <motion.div {...reveal(0.4)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
           <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
             Recovery likelihood
           </div>
           <div className="mt-3 flex items-end gap-3">
-            <div className="text-[2.2rem] leading-none sm:text-[2.6rem]">64%</div>
+            <motion.div
+              className="text-[2.2rem] leading-none sm:text-[2.6rem]"
+              {...(reducedMotion ? {} : {
+                initial: { opacity: 0 },
+                whileInView: { opacity: 1 },
+                transition: { duration: 0.3, delay: 0.6 },
+                viewport: { once: true },
+              })}
+            >
+              64%
+            </motion.div>
             <div className="pb-1 text-xs uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
               High confidence
             </div>
           </div>
-          <div className="mt-4">
+          <motion.div
+            className="mt-4"
+            {...(reducedMotion ? {} : {
+              initial: { scaleX: 0, transformOrigin: 'left' },
+              whileInView: { scaleX: 1 },
+              transition: { duration: 0.8, delay: 0.5, ease: [0.16, 1, 0.3, 1] },
+              viewport: { once: true },
+            })}
+          >
             <div className="relative h-2 border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.paperAlt }}>
               <div
                 className="absolute left-[24%] right-[18%] top-0 h-full"
@@ -209,10 +241,10 @@ function DecisionDossierMockup() {
               <span>52%</span>
               <span>71%</span>
             </div>
-          </div>
+          </motion.div>
         </motion.div>
 
-        <motion.div {...loadProps(reducedMotion, 0.42)} className="px-4 py-4 sm:px-5">
+        <motion.div {...reveal(0.55)} className="px-4 py-4 sm:px-5">
           <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
             Recommended action
           </div>
@@ -232,21 +264,32 @@ function DecisionDossierMockup() {
         </motion.div>
       </div>
 
+      {/* Evidence + Audit — last to appear, the "why" */}
       <div className="grid md:grid-cols-[1.1fr_0.9fr]">
-        <motion.div {...loadProps(reducedMotion, 0.52)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
+        <motion.div {...reveal(0.75)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
           <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-            Evidence panel
+            Evidence
           </div>
           <div className="mt-3 space-y-2 text-sm leading-relaxed" style={{ color: PALETTE.steel }}>
-            {DOSSIER_EVIDENCE.map((item) => (
-              <div key={item} className="border-l pl-3" style={{ borderColor: PALETTE.teal }}>
+            {DOSSIER_EVIDENCE.map((item, i) => (
+              <motion.div
+                key={item}
+                className="border-l pl-3"
+                style={{ borderColor: PALETTE.teal }}
+                {...(reducedMotion ? {} : {
+                  initial: { opacity: 0, x: -4 },
+                  whileInView: { opacity: 1, x: 0 },
+                  transition: { duration: 0.3, delay: 0.85 + i * 0.1 },
+                  viewport: { once: true },
+                })}
+              >
                 {item}
-              </div>
+              </motion.div>
             ))}
           </div>
         </motion.div>
 
-        <motion.div {...loadProps(reducedMotion, 0.62)} className="px-4 py-4 sm:px-5">
+        <motion.div {...reveal(0.9)} className="px-4 py-4 sm:px-5">
           <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
             Approval + audit
           </div>
@@ -259,14 +302,24 @@ function DecisionDossierMockup() {
               Activity log
             </div>
             <div className="mt-2 space-y-2 text-xs leading-relaxed" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-              {DOSSIER_AUDIT.map((item) => (
-                <div key={item}>{item}</div>
+              {DOSSIER_AUDIT.map((item, i) => (
+                <motion.div
+                  key={item}
+                  {...(reducedMotion ? {} : {
+                    initial: { opacity: 0 },
+                    whileInView: { opacity: 1 },
+                    transition: { duration: 0.25, delay: 1.0 + i * 0.08 },
+                    viewport: { once: true },
+                  })}
+                >
+                  {item}
+                </motion.div>
               ))}
             </div>
           </div>
         </motion.div>
       </div>
-    </motion.aside>
+    </aside>
   );
 }
 
@@ -347,24 +400,19 @@ export default function LandingPage() {
           {/* Hero text — centered */}
           <div className="mx-auto max-w-[78rem] px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
             <div className="mx-auto max-w-[52rem] text-center">
-              <motion.div {...loadProps(reducedMotion, 0.04)} className="inline-flex items-center gap-3 border px-3 py-2 text-[11px] uppercase tracking-[0.18em]" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel, color: PALETTE.teal, fontFamily: FONTS.mono }}>
-                <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.teal }} />
-                Now in early access
-              </motion.div>
-
               <motion.h1
-                {...loadProps(reducedMotion, 0.1)}
-                className="mx-auto mt-8 max-w-[18ch] text-[clamp(2.6rem,6vw,4.8rem)] font-medium leading-[0.95] tracking-[-0.04em]"
+                {...loadProps(reducedMotion, 0.06)}
+                className="mx-auto max-w-[18ch] text-[clamp(2.8rem,6.5vw,5.2rem)] font-medium leading-[0.93] tracking-[-0.04em]"
               >
                 Your overdue invoices deserve a specialist
               </motion.h1>
 
               <motion.p
-                {...loadProps(reducedMotion, 0.18)}
-                className="mx-auto mt-7 max-w-[36rem] text-lg leading-8"
+                {...loadProps(reducedMotion, 0.14)}
+                className="mx-auto mt-7 max-w-[34rem] text-lg leading-8"
                 style={{ color: PALETTE.steel }}
               >
-                Nooterra is an AI collections employee. It connects to Stripe, reads your payment history, and follows up on overdue accounts with evidence-backed recommendations and policy guardrails.
+                Nooterra connects to Stripe, reads your payment history, and decides which overdue accounts need a follow-up, which need an escalation, and which should wait.
               </motion.p>
 
               <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -428,13 +476,12 @@ export default function LandingPage() {
           <div className="mx-auto grid max-w-[78rem] gap-10 lg:grid-cols-[0.95fr_1.4fr]">
             <motion.div {...revealProps(reducedMotion, 0.04)}>
               <SectionLabel>How it works</SectionLabel>
-              <h2 className="max-w-[14ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Connect Stripe. Set policies. See every decision.
+              <h2 className="max-w-[16ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                Four steps from Stripe to first recommendation.
               </h2>
               <p className="mt-5 max-w-[34rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
-                Nooterra builds a working view of your receivables from Stripe. Overdue invoices are ranked,
-                routed through policy, and surfaced with the evidence your team needs to approve or reject
-                the next step.
+                No implementation project. No data migration. Nooterra reads directly from Stripe and starts
+                working with whatever you already have.
               </p>
             </motion.div>
 
@@ -465,11 +512,11 @@ export default function LandingPage() {
         <section id="why-nooterra" className="scroll-mt-24 border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
           <div className="mx-auto max-w-[78rem]">
             <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
-              <SectionLabel>Stripe handles billing. You still need collections judgment.</SectionLabel>
+              <SectionLabel>The gap in your collections process</SectionLabel>
               <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Stripe automates retries.{' '}
+                Stripe retries the card.{' '}
                 <span style={{ color: PALETTE.steel }}>
-                  Nooterra decides what happens next.
+                  Nobody follows up on the rest.
                 </span>
               </h2>
             </motion.div>
@@ -493,10 +540,10 @@ export default function LandingPage() {
 
               <motion.div {...revealProps(reducedMotion, 0.08)} className="px-5 py-6 sm:px-6" style={{ background: PALETTE.paper }}>
                 <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.teal, fontFamily: FONTS.mono }}>
-                  What Nooterra governs
+                  What Nooterra adds
                 </div>
                 <div className="mt-5 space-y-3">
-                  {NOOTERRA_GOVERNS.map((item) => (
+                  {NOOTERRA_HANDLES.map((item) => (
                     <div key={item} className="flex items-center gap-3 text-sm" style={{ color: PALETTE.ink }}>
                       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center border text-[10px]" style={{ borderColor: PALETTE.teal, background: PALETTE.tealSoft, fontFamily: FONTS.mono, color: PALETTE.teal }}>
                         GO
@@ -514,9 +561,9 @@ export default function LandingPage() {
         <section className="border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
           <div className="mx-auto max-w-[78rem]">
             <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
-              <SectionLabel>Built for finance teams who cannot afford mistakes</SectionLabel>
+              <SectionLabel>Why this is safe to try</SectionLabel>
               <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Go live only after the system earns trust.
+                You stay in control. Always.
               </h2>
             </motion.div>
 
@@ -538,17 +585,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <motion.p
-              {...revealProps(reducedMotion, 0.12)}
-              className="mt-6 text-sm leading-7"
-              style={{ color: PALETTE.steelSoft }}
-            >
-              Under the hood: event ledger, policy engine, and closed-loop learning from real payment
-              outcomes.{' '}
-              <a href="/docs" className="underline" style={{ color: PALETTE.teal }}>
-                Read the technical deep dive
-              </a>
-            </motion.p>
+{/* Technical deep-dive link removed — doesn't convince a buyer */}
           </div>
         </section>
 
@@ -561,13 +598,11 @@ export default function LandingPage() {
           >
             <div className="grid gap-8 lg:grid-cols-[1.25fr_0.85fr] lg:items-end">
               <div>
-                <SectionLabel>Early access</SectionLabel>
-                <h2 className="max-w-[16ch] text-[clamp(2rem,4vw,3.25rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                  We're onboarding design partners now.
+                <h2 className="max-w-[18ch] text-[clamp(2rem,4vw,3.25rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                  See it work on your own data.
                 </h2>
                 <p className="mt-5 max-w-[38rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
-                  Connect Stripe, set your approval rules, and see Riley triage overdue revenue in your
-                  first session.
+                  Connect Stripe and watch Nooterra analyze your overdue invoices in your first session. No commitment. No credit card.
                 </p>
               </div>
 
