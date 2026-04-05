@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react';
-import { ArrowRight, Zap, Shield, Activity } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 /* ── Design tokens ── */
 const PALETTE = {
@@ -30,19 +30,16 @@ const CAPABILITIES = [
     ref: 'REF // 01A',
     title: 'Instant\nIntegration',
     body: 'Connect Stripe in 60 seconds. Nooterra reads your customers, invoices, payments, and disputes. Full picture in minutes.',
-    Icon: Zap,
   },
   {
     ref: 'REF // 02B',
     title: 'Immutable\nProof',
     body: 'Every action comes with an evidence trail. No outreach is sent without your explicit approval and a full audit log.',
-    Icon: Shield,
   },
   {
     ref: 'REF // 03C',
     title: 'Autonomous\nScale',
     body: 'Nooterra learns your institutional tone. Once trust is earned, the system scales recovery at machine speed.',
-    Icon: Activity,
   },
 ];
 
@@ -181,6 +178,8 @@ function DecisionDossierMockup({ reducedMotion }) {
         width: '100%',
         position: 'relative',
         overflow: 'hidden',
+        userSelect: 'none',
+        cursor: 'default',
       }}
     >
       {/* Corner marker */}
@@ -561,7 +560,7 @@ export default function LandingPage() {
                 >
                   Debt is a{' '}
                   <br />
-                  <span style={{ color: PALETTE.accentDark }}>data problem.</span>
+                  <span style={{ color: PALETTE.accent }}>data problem.</span>
                 </motion.h1>
 
                 {/* Subline */}
@@ -628,6 +627,10 @@ export default function LandingPage() {
               <motion.div
                 {...loadProps(reducedMotion, 0.3)}
                 style={{ flex: '2 1 400px', minWidth: 0 }}
+                {...(reducedMotion ? {} : {
+                  animate: { y: [0, -8, 0] },
+                  transition: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
+                })}
               >
                 <DecisionDossierMockup reducedMotion={reducedMotion} />
               </motion.div>
@@ -676,8 +679,8 @@ export default function LandingPage() {
                       {item.body}
                     </p>
                   </div>
-                  <div style={{ marginTop: 40, color: PALETTE.accentDark }}>
-                    <item.Icon size={36} />
+                  <div style={{ marginTop: 40 }}>
+                    <div style={{ width: 48, height: 4, background: PALETTE.accent }} />
                   </div>
                 </motion.div>
               ))}
@@ -1121,7 +1124,7 @@ export default function LandingPage() {
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                      <Activity size={18} color={PALETTE.accent} />
+                      <div style={{ width: 12, height: 12, background: PALETTE.accent }} />
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ height: 6, background: 'rgba(255,255,255,0.2)', width: '75%', marginBottom: 6 }} />
