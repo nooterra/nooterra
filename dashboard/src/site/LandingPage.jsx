@@ -332,8 +332,8 @@ export default function LandingPage() {
         }
         .nav-link:hover::after { width: 100%; }
 
-        .btn-primary { transition: background 0.15s ease, transform 0.15s ease; }
-        .btn-primary:hover { opacity: 0.85; transform: translateY(-1px); }
+        .btn-primary { transition: opacity 0.15s ease, transform 0.15s ease; }
+        .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
         .btn-primary:active { opacity: 1; transform: translateY(0); }
 
         .btn-ghost { transition: background 0.15s ease; }
@@ -382,41 +382,44 @@ export default function LandingPage() {
 
       <main>
         {/* ── Section 1: Hero ── */}
-        <section className="scroll-mt-24 border-b" style={{ borderColor: PALETTE.lineStrong }}>
-          <div className="mx-auto grid max-w-[78rem] lg:grid-cols-2">
-            {/* Left: copy */}
-            <div className="border-b px-4 py-14 sm:px-6 lg:border-b-0 lg:border-r lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+        <section className="scroll-mt-24">
+          <div className="grid lg:grid-cols-[1.1fr_1fr]">
+            {/* Left: copy — dark panel for contrast */}
+            <div
+              className="flex flex-col justify-center px-6 py-16 sm:px-10 lg:px-14 lg:py-24"
+              style={{ background: PALETTE.ink, color: '#F4F0E8' }}
+            >
               <motion.h1
                 {...loadProps(reducedMotion, 0.06)}
-                className="text-[clamp(2.6rem,5.5vw,4.2rem)] leading-[1.05] tracking-[-0.03em]"
-                style={{ fontWeight: 500 }}
+                className="text-[clamp(2.8rem,6vw,4.6rem)] leading-[1] tracking-[-0.035em]"
+                style={{ fontWeight: 700 }}
               >
-                Overdue invoices.{' '}
-                <br className="hidden sm:block" />
-                <span style={{ fontFamily: FONTS.serif, fontStyle: 'italic', fontWeight: 400 }}>Recovered.</span>
+                Stop chasing
+                <br />
+                overdue invoices.
               </motion.h1>
 
               <motion.p
                 {...loadProps(reducedMotion, 0.14)}
-                className="mt-7 max-w-[38rem] text-lg leading-8 sm:text-xl"
-                style={{ color: PALETTE.steel }}
+                className="mt-6 max-w-[28rem] text-[1.05rem] leading-[1.7]"
+                style={{ color: 'rgba(244,240,232,0.65)' }}
               >
                 Nooterra connects to Stripe, reads your payment history, and follows up on every overdue account — with evidence and your approval.
               </motion.p>
 
-              <motion.div {...loadProps(reducedMotion, 0.22)} className="mt-9 flex items-center gap-5">
+              <motion.div {...loadProps(reducedMotion, 0.22)} className="mt-10 flex items-center gap-5">
                 <a
                   href="/setup"
-                  className="btn-primary inline-flex items-center justify-center gap-2 border px-5 py-3 text-[14px] tracking-[-0.01em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.sans, fontWeight: 500 }}
+                  className="btn-primary inline-flex items-center justify-center gap-2 px-6 py-3.5 text-[15px] tracking-[-0.01em] no-underline"
+                  style={{ background: PALETTE.paper, color: PALETTE.ink, fontFamily: FONTS.sans, fontWeight: 600, borderRadius: '4px' }}
                 >
                   Get started
-                  <ArrowRight size={15} />
+                  <ArrowRight size={16} />
                 </a>
                 <a
                   href="#how-it-works"
                   className="nav-link text-[14px] no-underline"
-                  style={{ color: PALETTE.steel, fontWeight: 500 }}
+                  style={{ color: 'rgba(244,240,232,0.5)', fontWeight: 500 }}
                 >
                   Explore product &rarr;
                 </a>
@@ -425,15 +428,15 @@ export default function LandingPage() {
 
             {/* Right: dossier */}
             <div
-              className="flex items-center justify-center px-4 py-10 sm:px-6 lg:px-8 lg:py-16"
-              style={{ background: 'linear-gradient(180deg, rgba(250,247,241,0.96), rgba(236,228,215,0.92))' }}
+              className="flex items-center justify-center overflow-hidden px-6 py-10 sm:px-8 lg:px-10 lg:py-16"
+              style={{ background: PALETTE.paperAlt }}
             >
               <DecisionDossierMockup />
             </div>
           </div>
 
           {/* Proof points */}
-          <div className="mx-auto max-w-[78rem] border-t" style={{ borderColor: PALETTE.lineStrong }}>
+          <div className="mx-auto max-w-[78rem] border-t border-b" style={{ borderColor: PALETTE.lineStrong }}>
             <div className="grid md:grid-cols-3">
               {PROOF_POINTS.map((item, index) => (
                 <motion.div
