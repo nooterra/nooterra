@@ -211,6 +211,25 @@ async function executeCollectionsWorldRuntimeShadow({
   startedAt,
   tracer,
 }) {
+  // Refresh Stripe data before planning
+  try {
+    const keyResult = await pool.query(
+      `SELECT credentials_encrypted FROM tenant_integrations
+       WHERE tenant_id = $1 AND service = 'stripe' AND status = 'connected'`,
+      [worker.tenant_id],
+    );
+    if (keyResult.rows[0]?.credentials_encrypted) {
+      const { decryptCredential } = await import('./crypto-utils.js');
+      const apiKey = decryptCredential(keyResult.rows[0].credentials_encrypted);
+      const { backfillStripeData } = await import('./router.js');
+      await backfillStripeData(pool, worker.tenant_id, apiKey, log);
+      addActivity('backfill', 'Refreshed Stripe data');
+    }
+  } catch (err: any) {
+    log('warn', `Stripe refresh failed for ${worker.tenant_id}: ${err.message}`);
+    addActivity('backfill', `Stripe refresh failed: ${err.message}`);
+  }
+
   const verificationPlan = charter.verificationPlan || createDefaultVerificationPlan();
   const plan = await generateReactivePlan(pool, worker.tenant_id);
   const plannedActions = (plan.actions || [])

@@ -67,6 +67,7 @@ import {
   upsertModelReleaseEvaluationReport,
 } from '../eval/evaluation-reports.js';
 import { listRolloutGates, loadRolloutGate } from '../eval/rollout-gates.js';
+import { getRoleDefinition } from '../core/role-definitions.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -686,6 +687,7 @@ async function ensureCollectionsRuntime(
     const charter = {
       schemaVersion: 'world.runtime.charter.v1',
       worldRuntimeTemplateId: templateId,
+      roleId: body.roleId || 'ar-collections',
       runtimeKind: 'collections',
       launchMode: 'shadow',
       sources: ['stripe'],
@@ -718,7 +720,7 @@ async function ensureCollectionsRuntime(
           requestedName,
           'Stripe-first AR collections runtime. Reads company state, proposes actions, and starts in shadow mode.',
           JSON.stringify(charter),
-          null,
+          '0 */4 * * *',
           template.model,
           'platform',
           'ready',
@@ -742,12 +744,26 @@ async function ensureCollectionsRuntime(
     )
   ).rows[0] ?? null;
 
+  const boundaries = (body.boundaries && typeof body.boundaries === 'object' && !Array.isArray(body.boundaries)
+    ? body.boundaries : {}) as Record<string, unknown>;
+  const grantOverrides = {
+    maxAutonomousAmountCents: typeof boundaries.maxAutonomousAmountCents === 'number'
+      ? boundaries.maxAutonomousAmountCents : undefined,
+    maxContactsPerDay: typeof boundaries.maxContactsPerDay === 'number'
+      ? boundaries.maxContactsPerDay : undefined,
+  };
   const grant = existingGrant
     ? { id: existingGrant.id }
-    : await grantAuthority(pool, createCollectionsGrant(tenantId, actorId, worker.id));
+    : await grantAuthority(pool, createCollectionsGrant(tenantId, actorId, worker.id, grantOverrides));
 
   // Seed default AR objectives for this tenant (idempotent upsert)
   const defaultObjectives = createDefaultArObjectives(tenantId);
+  if (typeof boundaries.highValueThresholdCents === 'number') {
+    defaultObjectives.constraintConfig = {
+      ...defaultObjectives.constraintConfig,
+      high_value_escalates_to_approval: { thresholdCents: boundaries.highValueThresholdCents },
+    };
+  }
   await upsertTenantObjectives(pool, defaultObjectives);
 
   const policy = normalizeWorkerRuntimePolicyOverrides({
@@ -2420,6 +2436,128 @@ export async function handleWorldRuntimeRoute(
     const { reconcileStripeData } = await import('./reconciliation.js');
     const report = await reconcileStripeData(pool, tenantId, apiKey);
     json(res, report);
+    return true;
+  }
+
+  // --- Employees ---
+
+  if (req.method === 'POST' && pathname === '/v1/employees') {
+    try {
+      const auth = await requireAuthenticatedWorldWriteContext(req);
+      if (!auth.ok) return error(res, auth.message, auth.status), true;
+
+      const body = parseJsonBody(await readBody(req));
+      const roleId = typeof body.roleId === 'string' ? body.roleId : 'ar-collections';
+      const role = getRoleDefinition(roleId);
+      if (!role) return error(res, `Unknown role: ${roleId}`, 400), true;
+
+      const employeeName = typeof body.employeeName === 'string' && body.employeeName.trim()
+        ? body.employeeName.trim()
+        : role.defaultEmployeeName;
+
+      const boundaries = body.boundaries && typeof body.boundaries === 'object' && !Array.isArray(body.boundaries)
+        ? body.boundaries as Record<string, unknown>
+        : {};
+
+      const result = await ensureCollectionsRuntime(pool, auth.tenantId, auth.actorId, {
+        name: employeeName,
+        roleId,
+        boundaries,
+      });
+
+      json(res, {
+        employee: {
+          id: result.runtime.workerId,
+          name: result.runtime.workerName,
+          roleId,
+          role: role.name,
+          status: result.created ? 'created' : 'existing',
+        },
+      }, 201);
+    } catch (err: any) {
+      return error(res, err?.message || 'Failed to create employee', 400), true;
+    }
+    return true;
+  }
+
+  if (req.method === 'GET' && pathname.startsWith('/v1/employees/') && pathname.endsWith('/summary')) {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+
+    const segments = pathname.split('/');
+    const workerId = segments[3];
+    if (!workerId) return error(res, 'Missing employee id', 400), true;
+
+    // Validate worker belongs to tenant
+    const workerResult = await pool.query(
+      `SELECT id, name, status, charter FROM workers
+       WHERE id = $1 AND tenant_id = $2 AND status != 'archived'
+       LIMIT 1`,
+      [workerId, tenantId],
+    );
+    if (workerResult.rowCount === 0) return error(res, 'Employee not found', 404), true;
+    const workerRow = workerResult.rows[0];
+
+    const [pendingResult, recentEvents, overdueResult, coverageResult] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS count FROM gateway_actions
+         WHERE status = 'escrowed' AND agent_id = $1`,
+        [workerId],
+      ),
+      queryEvents(pool, {
+        tenantId,
+        sourceId: workerId,
+        types: [
+          'action.proposed', 'action.approved', 'action.rejected',
+          'action.executed', 'observation.received',
+        ],
+        limit: 20,
+      }),
+      pool.query(
+        `SELECT COUNT(*)::int AS count FROM world_objects
+         WHERE tenant_id = $1 AND type = 'invoice'
+           AND (attributes->>'status' = 'overdue' OR attributes->>'status' = 'past_due')`,
+        [tenantId],
+      ),
+      pool.query(
+        `SELECT coverage_pct FROM autonomy_coverage
+         WHERE tenant_id = $1 AND agent_id = $2
+         ORDER BY measured_at DESC
+         LIMIT 1`,
+        [tenantId, workerId],
+      ),
+    ]);
+
+    json(res, {
+      employee: {
+        id: workerRow.id,
+        name: workerRow.name,
+        status: workerRow.status,
+      },
+      pendingApprovals: pendingResult.rows[0]?.count ?? 0,
+      recentEvents,
+      overdueInvoices: overdueResult.rows[0]?.count ?? 0,
+      autonomyCoverage: coverageResult.rows[0]?.coverage_pct ?? null,
+    });
+    return true;
+  }
+
+  // --- Object Counts ---
+
+  if (req.method === 'GET' && pathname === '/v1/world/objects/count') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+
+    const result = await pool.query(
+      `SELECT type, COUNT(*)::int AS count FROM world_objects
+       WHERE tenant_id = $1
+       GROUP BY type`,
+      [tenantId],
+    );
+
+    const counts: Record<string, number> = {};
+    for (const row of result.rows) {
+      counts[row.type] = row.count;
+    }
+    json(res, { counts });
     return true;
   }
 
