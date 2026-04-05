@@ -52,14 +52,14 @@ interface RoleDefinition {
   metrics: { key: string; label: string; direction: 'up' | 'down' }[];
   buildAgent(tenantId: string, agentId: string): AgentConfig;
   buildGrant(tenantId: string, grantorId: string, granteeId: string): CreateGrantInput;
-  buildObjectives(tenantId: string): WeightedObjective[];
+  buildObjectives(tenantId: string): TenantObjectives;  // includes both objectives AND constraints
 }
 ```
 
 Factory hooks delegate to existing domain code:
 - `buildAgent()` → calls `createCollectionsAgent()` from `src/agents/templates/ar-collections.ts`
 - `buildGrant()` → calls `createCollectionsGrant()` from `src/agents/templates/ar-collections.ts`
-- `buildObjectives()` → delegates to `src/domains/ar/objectives.ts`
+- `buildObjectives()` → delegates to `createDefaultArObjectives()` in `src/domains/ar/objectives.ts`, which returns `TenantObjectives` including both weighted objectives AND constraint IDs (no_active_dispute_outreach, require_primary_billing_contact, high_value_escalates_to_approval, collections_outreach_cooldown, outside_business_hours_requires_approval)
 
 This wraps existing source-of-truth factories in metadata. No config blob duplication.
 
@@ -101,13 +101,14 @@ Each is hours of work, not days:
 | Rejection ledger event | `src/gateway/gateway.ts` | Append `manager.action.rejected` event to `world_events` on escrow rejection |
 | Cron schedule on worker | `src/api/world-runtime-routes.ts` | Set schedule at provisioning time so `scheduler.ts` picks up recurring execution |
 | Backfill: disputes | `services/runtime/router.ts` | Extend existing backfill to ingest disputes through `connector.ts` path |
+| Backfill in execution path | `services/runtime/execution-loop.ts` | Invoke backfill at start of collections worker run so cron refreshes Stripe data before planning |
 | Grant constraint overrides | `src/agents/templates/ar-collections.ts` | Accept boundary params (max amount, contact frequency) when building grant |
 
 ### 1.5 Stripe Ingest Strategy
 
 **Onboarding:** Backfill triggered during onboarding. Pulls customers, invoices, payment intents, and disputes from Stripe API. Routes through existing `connector.ts` → `applyConnectorResult()` → world model.
 
-**Steady state:** Periodic re-backfill on a cron schedule (every few hours). Set as worker schedule at provisioning time, executed by `scheduler.ts`.
+**Steady state:** The collections worker runs on a cron schedule (every few hours), set at provisioning time and picked up by `scheduler.ts`. The scheduler invokes `executeWorker()`, which runs the AR execution path. To refresh Stripe data, the execution path in `execution-loop.ts` must invoke backfill at the start of each collections run — refresh data first, then plan. This is a small addition to the collections worker execution path, not a scheduler change. Without this, the cron would re-plan on stale data.
 
 **Deferred:** Connected-account Stripe webhook pipeline for real-time ingest. Phase 2 when sub-hour latency matters.
 
@@ -115,7 +116,7 @@ Each is hours of work, not days:
 
 ### 1.6 Execution Path
 
-The pilot uses the existing AR shadow path in `services/runtime/execution-loop.ts`: `generateReactivePlan()` → `assembleContext()` → `chatCompletionForWorker()`. This is the actual code path, not the `executeAgentTask()` in `src/agents/runtime.ts`.
+The pilot uses the existing AR shadow path in `services/runtime/execution-loop.ts`: backfill refresh (new) → `generateReactivePlan()` → `assembleContext()` → `chatCompletionForWorker()`. This is the actual code path, not the `executeAgentTask()` in `src/agents/runtime.ts`.
 
 Planner assignment is a non-issue with one employee. `allocateWork()` exists but is unused in the AR flow.
 
@@ -166,7 +167,7 @@ Design target: Stripe/Ramp tier. Clean, minimal, product-led.
 - Require approval for accounts over $X ARR
 - Business hours only (toggle + timezone)
 
-These map directly to existing `GrantScope` and `GrantConstraints` fields.
+The first two map to existing `GrantScope` and `GrantConstraints` fields. "Accounts over $X ARR" maps to the `high_value_escalates_to_approval` constraint threshold. "Business hours only" maps to the `outside_business_hours_requires_approval` constraint. These are set at grant creation time. Changes after onboarding use revoke-and-recreate (no in-place grant update exists).
 
 **Step 3 — Build Context.** Triggers backfill. Shows progress — real object/event counts if the count endpoint supports it, otherwise phase labels: "Connecting → Scanning → Building → Ready." No fake counters. Lands on: "Riley has identified N accounts requiring attention. Ready to start?"
 
@@ -220,7 +221,9 @@ Policy boundaries as human-readable controls.
 - **Stripe connection** — Status, last sync, resync trigger
 - **Danger zone** — Pause employee
 
-Changing a boundary updates authority grant constraints via existing grant update path.
+There is no grant update path in the current codebase — only create and revoke. Changing a boundary revokes the current grant and creates a new one with updated constraints. This is simple and correct for the pilot. A proper in-place grant update is deferred.
+
+Note: "Require approval for accounts over $X ARR" does not map to an existing grant field. For the pilot, this is implemented as a threshold parameter on the `high_value_escalates_to_approval` constraint in `objectives.ts`, not as a grant scope filter. The Settings UI presents it as a slider, but the backend maps it to the constraint system.
 
 ### 2.8 Shell / Navigation
 
@@ -257,9 +260,9 @@ dashboard/src/lib/employee-api.js
 | `src/api/world-runtime-routes.ts` | Add employee endpoints, object count, cron schedule on provisioning, grant overrides |
 | `src/ledger/event-store.ts` | Add `sourceId` filter to `queryEvents()` |
 | `src/gateway/gateway.ts` | Add rejection ledger event |
-| `services/runtime/router.ts` | Extend backfill to disputes |
 | `src/agents/templates/ar-collections.ts` | Accept boundary params for grant |
-| `src/core/role-definitions.ts` | New file — role registry with factory hooks |
+| `services/runtime/router.ts` | Extend backfill to disputes |
+| `services/runtime/execution-loop.ts` | Invoke backfill at start of collections worker execution |
 | `dashboard/src/App.jsx` | Add employee routes, post-auth redirect |
 | `dashboard/src/site/LandingPage.jsx` | Copy rewrite |
 | `dashboard/src/lib/world-api.js` | Additional query helpers |
@@ -291,10 +294,11 @@ Connect Stripe (API key → encrypted credential storage in router.ts)
    Periodic re-backfill (cron) → router.ts → Stripe API
      → connector.ts → updates world_objects, world_events
 
-2. PLAN
+2. REFRESH + PLAN
    Scheduler (scheduler.ts) triggers worker on cron
      → execution-loop.ts takes AR shadow path
-     → generateReactivePlan() in planner.ts
+     → First: invoke backfill to refresh Stripe data into world model
+     → Then: generateReactivePlan() in planner.ts
        → queries overdue invoices
        → checks payment history, dispute status per account
        → generates variants via scanner.ts (friendly/formal/escalation/hold)
@@ -420,6 +424,7 @@ Back to dashboard.
 - Full policy DSL / policy editor
 - Autonomous outbound across multiple channels
 - Performance claims without pilot data
+- In-place grant update (pilot uses revoke-and-recreate)
 
 ---
 
@@ -427,7 +432,9 @@ Back to dashboard.
 
 | Category | New | Modified | Untouched |
 |---|---|---|---|
-| Backend files | 1 | 5 | ~40+ |
-| Frontend files | 11 | 3 | ~20+ |
+| src/ files | 1 | 4 | ~40+ |
+| services/ files | 0 | 2 | ~30+ |
+| dashboard/ files | 11 | 3 | ~20+ |
 | DB migrations | 0 | 0 | 81 |
-| Services | 0 | 0 | 3 |
+
+Totals: 12 new files, 9 modified files. Everything else untouched.
