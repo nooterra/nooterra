@@ -76,6 +76,7 @@ export interface EventFilter {
   types?: string[];
   domains?: string[];
   objectId?: string;
+  sourceId?: string;
   after?: Date;
   before?: Date;
   traceId?: string;
@@ -269,6 +270,12 @@ export async function queryEvents(pool: pg.Pool, filter: EventFilter): Promise<W
     idx++;
   }
 
+  if (filter.sourceId) {
+    conditions.push(`source_id = $${idx}`);
+    params.push(filter.sourceId);
+    idx++;
+  }
+
   if (filter.after) {
     conditions.push(`timestamp >= $${idx}`);
     params.push(filter.after);
@@ -403,6 +410,12 @@ export async function countEvents(pool: pg.Pool, filter: Omit<EventFilter, 'limi
   if (filter.objectId) {
     conditions.push(`object_refs @> $${idx}::jsonb`);
     params.push(JSON.stringify([{ objectId: filter.objectId }]));
+    idx++;
+  }
+
+  if (filter.sourceId) {
+    conditions.push(`source_id = $${idx}`);
+    params.push(filter.sourceId);
     idx++;
   }
 
