@@ -1,716 +1,609 @@
-/**
- * Nooterra Landing Page — Editorial precision.
- *
- * Aesthetic: Monocle meets Bloomberg. Intellectual confidence.
- * Every layout shape is different. Zero repeated patterns.
- * The product IS the visual — the trace walkthrough is the hero.
- *
- * Fonts: Instrument Serif (display) + Satoshi (body)
- * Palette: Warm ivory base, ink-black text, one sharp teal accent
- */
+import { motion, useReducedMotion } from 'motion/react';
+import { ArrowRight } from 'lucide-react';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  ArrowRight, Check, ArrowUpRight, ChevronRight,
-  CreditCard, Mail, Users, Brain, Shield, Activity,
-  Eye, Zap, TrendingUp, BarChart3, Lock,
-} from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// Design tokens — warm ivory + ink + teal
-// ---------------------------------------------------------------------------
-
-const T = {
-  // Surfaces
-  ivory: '#FAFAF7',
-  paper: '#F4F3EF',
-  chalk: '#ECEAE4',
-  // Text
-  ink: '#1A1A1A',
-  iron: '#52524E',
-  stone: '#737370',  // darkened for WCAG AA contrast (was #8C8C86, 3.2:1 — now 4.6:1)
-  // Accent — saturated teal (not blue, not green — in between)
-  teal: '#0D9488',
-  tealDeep: '#0A7A70',
-  tealSoft: '#F0FDFA',
-  tealMid: '#CCFBF1',
-  // Semantic
-  ember: '#C2410C',
-  emberSoft: '#FFF7ED',
-  gold: '#A16207',
-  goldSoft: '#FEFCE8',
-  sage: '#15803D',
-  sageSoft: '#F0FDF4',
-  slate: '#475569',
-  // Structure
-  rule: '#D6D3CC',
-  ruleLight: '#E8E6E0',
+const PALETTE = {
+  paper: '#F4F0E8',
+  paperAlt: '#ECE4D7',
+  panel: '#FAF7F1',
+  line: 'rgba(23,20,17,0.14)',
+  lineStrong: 'rgba(23,20,17,0.26)',
+  ink: '#171411',
+  steel: '#655E56',
+  steelSoft: '#8B8379',
+  teal: '#255C59',
+  tealSoft: 'rgba(37,92,89,0.12)',
+  amber: '#B66A17',
 };
 
-const font = {
-  display: "'Instrument Serif', 'Georgia', serif",
-  body: "'Satoshi', 'DM Sans', system-ui, sans-serif",
+const FONTS = {
+  sans: "'Satoshi', 'Geist', system-ui, sans-serif",
   mono: "'Geist Mono', 'SF Mono', monospace",
+  serif: "'Instrument Serif', Georgia, serif",
 };
 
-// ---------------------------------------------------------------------------
-// Interactive Trace — the hero visual. Click-driven, not auto-play.
-// ---------------------------------------------------------------------------
+const EASE = [0.16, 1, 0.3, 1];
 
-function TraceWalkthrough() {
-  const [activeStep, setActiveStep] = useState(0);
+const PROOF_POINTS = [
+  { label: 'Stripe setup', value: '60 seconds' },
+  { label: 'Every decision', value: 'Logged and auditable' },
+  { label: 'Go-live model', value: 'Shadow mode first' },
+];
 
-  const steps = [
-    {
-      phase: 'OBSERVE',
-      title: 'Stripe detects an overdue invoice',
-      detail: 'Invoice #1247 — $4,200.00 — Acme Corp — 18 days past due',
-      meta: 'webhook received 340ms ago',
-      accent: T.teal,
-    },
-    {
-      phase: 'MODEL',
-      title: 'Business graph updated',
-      detail: 'Customer linked: 3 prior invoices (2 on-time, 1 late). 1 completed payment. Stripe state projected into the object graph.',
-      meta: '7 objects · 4 relationships',
-      accent: T.slate,
-    },
-    {
-      phase: 'PREDICT',
-      title: 'Payment probability: 72% within 7 days',
-      detail: 'Historical on-time rate: 67%. Amount remaining: $4,200. Dispute risk: 8% from the current Stripe payment trail.',
-      meta: 'calibration score 0.82',
-      accent: '#7C3AED',
-    },
-    {
-      phase: 'PLAN',
-      title: 'Stage 1: Personalized friendly reminder',
-      detail: 'Generated from invoice age, amount, and prior payment behavior. Include the current payment link and due-state context.',
-      meta: 'priority 0.84 · cost $0.003',
-      accent: T.gold,
-    },
-    {
-      phase: 'GOVERN',
-      title: 'Gateway: 11 checks passed',
-      detail: 'Authority ✓ Policy ✓ Budget ✓ Rate limit ✓ Disclosure appended ✓ Evidence bundle attached.',
-      meta: 'pipeline 12ms',
-      accent: T.sage,
-    },
-    {
-      phase: 'ACT',
-      title: 'Email sent. Outcome tracked.',
-      detail: 'Prediction state updates when Acme Corp pays, disputes, or new governed actions land in the ledger.',
-      meta: 'trace complete',
-      accent: T.teal,
-    },
-  ];
+const HOW_STEPS = [
+  {
+    step: '01',
+    title: 'Connect Stripe',
+    body: 'Link your account. Nooterra ingests your customers, invoices, payments, and subscriptions in minutes.',
+  },
+  {
+    step: '02',
+    title: 'Set your policies',
+    body: 'Define refund limits, approval thresholds, escalation rules. The system enforces them on every event.',
+  },
+  {
+    step: '03',
+    title: 'Review flagged decisions',
+    body: 'Each event gets a risk score, recommended action, and evidence trail. Your team approves or overrides.',
+  },
+  {
+    step: '04',
+    title: 'Watch it sharpen',
+    body: 'Every outcome feeds back in. Predictions improve. The system earns trust over time, not on day one.',
+  },
+];
 
+const STRIPE_HANDLES = [
+  'Payment retries and dunning emails',
+  'Failed payment recovery logic',
+  'Basic subscription lifecycle',
+];
+
+const NOOTERRA_GOVERNS = [
+  'Which overdue invoices to escalate vs. wait on',
+  'Which refund requests to approve vs. challenge',
+  'How to respond to disputes with the right evidence',
+  'Which subscription downgrades to intercept',
+];
+
+const TRUST_POINTS = [
+  {
+    title: 'Approval-first',
+    body: 'Nothing executes without operator sign-off. The system recommends. Your team decides.',
+  },
+  {
+    title: 'Shadow mode',
+    body: 'Run against 12 months of Stripe history before going live. See what the AI would have recommended vs. what actually happened.',
+  },
+  {
+    title: 'Full audit trail',
+    body: 'Every recommendation, approval, override, and outcome. Immutable. Exportable. Audit-ready.',
+  },
+];
+
+const DOSSIER_EVIDENCE = [
+  'High historical LTV and no prior dispute activity',
+  'Three failed payment attempts in the last 21 days',
+  'Customer accepted revised net terms in the prior cycle',
+];
+
+const DOSSIER_AUDIT = [
+  '11:42 UTC system ranked this invoice #3 of 48 flagged accounts',
+  '11:42 UTC policy pack `revenue.v1` passed 7/7 checks',
+  '11:43 UTC operator sign-off required before execution',
+];
+
+function NooterraLogo({ size = 26 }) {
   return (
-    <div role="region" aria-label="Interactive system trace walkthrough" style={{ background: T.ivory, border: `1px solid ${T.rule}`, borderRadius: 2, padding: 0, overflow: 'hidden' }}>
-      {/* Header bar */}
-      <div style={{
-        padding: '12px 20px', borderBottom: `1px solid ${T.ruleLight}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
-          <span style={{ fontSize: 10, fontFamily: font.mono, fontWeight: 500, color: T.stone, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            System trace
-          </span>
-        </div>
-        <span style={{ fontSize: 10, fontFamily: font.mono, color: T.stone }}>
-          {activeStep + 1}/{steps.length}
-        </span>
-      </div>
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="3" stroke={PALETTE.ink} strokeWidth="1.5" />
+      <circle cx="9.5" cy="10" r="2" fill={PALETTE.ink} />
+      <circle cx="22.5" cy="10" r="2" fill={PALETTE.ink} />
+      <circle cx="16" cy="22" r="2" fill={PALETTE.teal} />
+      <path d="M9.5 12L16 20M22.5 12L16 20M11.5 10H20.5" stroke={PALETTE.ink} strokeWidth="1.35" />
+    </svg>
+  );
+}
 
-      {/* Steps */}
-      <div style={{ padding: '8px 0' }}>
-        {steps.map((step, i) => {
-          const isActive = i === activeStep;
-          const isPast = i < activeStep;
-          const isFuture = i > activeStep;
+function revealProps(reducedMotion, delay = 0) {
+  if (reducedMotion) return {};
+  return {
+    initial: { opacity: 0, y: 6 },
+    whileInView: { opacity: 1, y: 0 },
+    transition: { duration: 0.22, delay, ease: EASE },
+    viewport: { once: true, margin: '-48px' },
+  };
+}
 
-          return (
-            <button
-              key={i}
-              onClick={() => setActiveStep(i)}
-              style={{
-                display: 'flex', alignItems: 'flex-start', gap: 16,
-                width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
-                padding: '14px 20px', background: isActive ? T.paper : 'transparent',
-                opacity: isFuture ? 0.3 : 1,
-                transition: 'all 0.2s ease',
-              }}
-            >
-              {/* Phase label */}
-              <span style={{
-                fontSize: 9, fontFamily: font.mono, fontWeight: 600,
-                letterSpacing: '0.1em', color: isPast ? T.sage : isActive ? step.accent : T.stone,
-                width: 56, flexShrink: 0, paddingTop: 2,
-              }}>
-                {isPast ? '✓' : step.phase}
-              </span>
+function loadProps(reducedMotion, delay = 0) {
+  if (reducedMotion) return {};
+  return {
+    initial: { opacity: 0, y: 6 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.22, delay, ease: EASE },
+  };
+}
 
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 14, fontWeight: 600, color: isActive ? T.ink : T.iron,
-                  fontFamily: font.body, lineHeight: 1.3,
-                }}>
-                  {step.title}
-                </div>
-                {(isActive || isPast) && (
-                  <div style={{
-                    fontSize: 12, color: T.stone, marginTop: 4, lineHeight: 1.5,
-                    fontFamily: font.body,
-                  }}>
-                    {step.detail}
-                  </div>
-                )}
-                {isActive && (
-                  <span style={{
-                    display: 'inline-block', marginTop: 6,
-                    fontSize: 10, fontFamily: font.mono, color: step.accent,
-                    letterSpacing: '0.02em',
-                  }}>
-                    {step.meta}
-                  </span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Navigation */}
-      <div style={{
-        padding: '12px 20px', borderTop: `1px solid ${T.ruleLight}`,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <button
-          onClick={() => setActiveStep(Math.max(0, activeStep - 1))}
-          disabled={activeStep === 0}
-          aria-label="Previous step"
-          style={{
-            fontSize: 11, fontFamily: font.body, fontWeight: 500,
-            color: activeStep === 0 ? T.stone : T.iron,
-            background: 'none', border: 'none', cursor: activeStep === 0 ? 'default' : 'pointer',
-            padding: '4px 0',
-          }}
-        >
-          Previous
-        </button>
-        <button
-          onClick={() => setActiveStep(Math.min(steps.length - 1, activeStep + 1))}
-          disabled={activeStep === steps.length - 1}
-          aria-label="Next step"
-          style={{
-            fontSize: 11, fontFamily: font.body, fontWeight: 600,
-            color: activeStep === steps.length - 1 ? T.stone : T.teal,
-            background: 'none', border: 'none', cursor: activeStep === steps.length - 1 ? 'default' : 'pointer',
-            padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4,
-          }}
-        >
-          Next step <ChevronRight size={12} />
-        </button>
-      </div>
+function SectionLabel({ children }) {
+  return (
+    <div
+      className="mb-5 text-[11px] uppercase tracking-[0.28em]"
+      style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}
+    >
+      {children}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
+function DecisionDossierMockup() {
+  const reducedMotion = useReducedMotion();
+
+  return (
+    <motion.aside
+      {...loadProps(reducedMotion, 0.12)}
+      className="w-full max-w-[31rem] border"
+      style={{
+        background: PALETTE.panel,
+        borderColor: PALETTE.lineStrong,
+        boxShadow: '0 22px 50px rgba(23,20,17,0.10)',
+      }}
+    >
+      <div
+        className="flex items-center justify-between gap-4 border-b px-4 py-3 text-[11px] uppercase tracking-[0.18em] sm:px-5"
+        style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}
+      >
+        <span>NT-INV-8842 / Governance Review</span>
+        <span className="inline-flex items-center gap-2" style={{ color: PALETTE.amber }}>
+          <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.amber }} />
+          Awaiting approval
+        </span>
+      </div>
+
+      <div className="border-b px-4 py-4 sm:px-5" style={{ borderColor: PALETTE.line }}>
+        <motion.div {...loadProps(reducedMotion, 0.24)} className="flex items-start justify-between gap-4">
+          <div>
+            <div className="mb-1 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+              Customer
+            </div>
+            <div className="text-[1.5rem] font-medium leading-none sm:text-[1.8rem]">Acme Manufacturing</div>
+            <div className="mt-3 flex flex-wrap gap-3 text-sm" style={{ color: PALETTE.steel }}>
+              <span>$14,200 due</span>
+              <span>42 days overdue</span>
+              <span>Tier 1 account</span>
+            </div>
+          </div>
+          <div
+            className="min-w-[6rem] border px-3 py-2 text-right"
+            style={{ borderColor: PALETTE.line, background: PALETTE.paper }}
+          >
+            <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+              Queue rank
+            </div>
+            <div className="mt-1 text-xl font-medium">03 / 48</div>
+          </div>
+        </motion.div>
+      </div>
+
+      <div className="grid border-b md:grid-cols-[1.25fr_0.95fr]" style={{ borderColor: PALETTE.line }}>
+        <motion.div {...loadProps(reducedMotion, 0.34)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
+          <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+            Payment probability
+          </div>
+          <div className="mt-3 flex items-end gap-3">
+            <div className="text-[2.2rem] leading-none sm:text-[2.6rem]">64%</div>
+            <div className="pb-1 text-xs uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+              Confidence 0.71
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="relative h-2 border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.paperAlt }}>
+              <div
+                className="absolute left-[24%] right-[18%] top-0 h-full"
+                style={{ background: PALETTE.tealSoft, borderLeft: `1px solid ${PALETTE.teal}`, borderRight: `1px solid ${PALETTE.teal}` }}
+              />
+              <div
+                className="absolute top-1/2 h-3 w-3 -translate-y-1/2 -translate-x-1/2 border"
+                style={{ left: '64%', background: PALETTE.teal, borderColor: PALETTE.panel }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-[10px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+              <span>52%</span>
+              <span>71%</span>
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div {...loadProps(reducedMotion, 0.42)} className="px-4 py-4 sm:px-5">
+          <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+            Recommended action
+          </div>
+          <div className="mt-3 border px-3 py-3 text-sm font-medium" style={{ borderColor: PALETTE.lineStrong, background: '#191715', color: PALETTE.panel }}>
+            Offer deferred payment plan
+          </div>
+          <div className="mt-4 grid gap-2 text-sm" style={{ color: PALETTE.steel }}>
+            <div className="flex items-center justify-between gap-4">
+              <span>Alternative considered</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.amber }}>Hold</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span>Expected next outcome</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.teal }}>Payment within 10d</span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      <div className="grid md:grid-cols-[1.1fr_0.9fr]">
+        <motion.div {...loadProps(reducedMotion, 0.52)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
+          <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+            Evidence panel
+          </div>
+          <div className="mt-3 space-y-2 text-sm leading-relaxed" style={{ color: PALETTE.steel }}>
+            {DOSSIER_EVIDENCE.map((item) => (
+              <div key={item} className="border-l pl-3" style={{ borderColor: PALETTE.teal }}>
+                {item}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        <motion.div {...loadProps(reducedMotion, 0.62)} className="px-4 py-4 sm:px-5">
+          <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+            Approval + audit
+          </div>
+          <div className="mt-3 border px-3 py-3" style={{ borderColor: PALETTE.line, background: PALETTE.paper }}>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span>Operator sign-off</span>
+              <span style={{ color: PALETTE.amber, fontFamily: FONTS.mono }}>Required</span>
+            </div>
+            <div className="mt-3 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+              Audit log
+            </div>
+            <div className="mt-2 space-y-2 text-xs leading-relaxed" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+              {DOSSIER_AUDIT.map((item) => (
+                <div key={item}>{item}</div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </motion.aside>
+  );
+}
 
 export default function LandingPage() {
-  return (
-    <div style={{ background: T.ivory, color: T.ink, minHeight: '100vh' }}>
+  const reducedMotion = useReducedMotion();
 
-      {/* ═══ RESPONSIVE STYLES ═══ */}
+  return (
+    <div
+      className="min-h-screen"
+      style={{
+        background: PALETTE.paper,
+        color: PALETTE.ink,
+        fontFamily: FONTS.sans,
+      }}
+    >
       <style>{`
-        @media (max-width: 768px) {
-          .landing-nav-inner { padding: 0 16px !important; }
-          .landing-nav-links { gap: 12px !important; }
-          .landing-nav-links a.nav-text-link { display: none !important; }
-          .landing-hero-section { padding: 48px 16px 40px !important; }
-          .landing-hero-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
-          .landing-credibility-strip { flex-direction: column !important; gap: 16px !important; }
-          .landing-social-proof { padding: 32px 16px !important; }
-          .landing-problem-section { padding: 56px 16px !important; }
-          .landing-how-section { padding: 56px 16px !important; }
-          .landing-difference-section { padding: 56px 16px !important; }
-          .landing-difference-table { font-size: 12px !important; }
-          .landing-difference-table td, .landing-difference-table th { padding: 10px 8px !important; }
-          .landing-difference-table td:first-child, .landing-difference-table th:first-child { padding-left: 0 !important; }
-          .landing-trust-section { padding: 56px 16px !important; }
-          .landing-trust-grid { flex-direction: column !important; }
-          .landing-trust-grid > div { border-right: none !important; border-bottom: 1px solid #D6D3CC !important; }
-          .landing-trust-grid > div:last-child { border-bottom: none !important; }
-          .landing-pricing-section { padding: 56px 16px !important; }
-          .landing-pricing-grid { grid-template-columns: 1fr !important; gap: 32px !important; }
-          .landing-pricing-row { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-          .landing-pricing-row-right { flex-direction: row !important; align-items: center !important; }
-          .landing-early-access { flex-direction: column !important; gap: 10px !important; align-items: flex-start !important; padding: 20px 16px !important; }
-          .landing-cta-section { padding: 56px 16px !important; }
-          .landing-cta-h2 { font-size: 28px !important; }
-          .landing-footer { padding: 20px 16px !important; flex-direction: column !important; gap: 16px !important; }
-          .landing-section-inner { padding: 0 16px !important; }
-        }
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .landing-nav-inner { padding: 0 24px !important; }
-          .landing-hero-section { padding: 64px 24px 48px !important; }
-          .landing-hero-grid { grid-template-columns: 1fr !important; gap: 48px !important; }
-          .landing-credibility-strip { flex-wrap: wrap !important; gap: 24px !important; }
-          .landing-social-proof { padding: 40px 24px !important; }
-          .landing-problem-section { padding: 64px 24px !important; }
-          .landing-how-section { padding: 64px 24px !important; }
-          .landing-difference-section { padding: 64px 24px !important; }
-          .landing-trust-section { padding: 64px 24px !important; }
-          .landing-pricing-section { padding: 64px 24px !important; }
-          .landing-pricing-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
-          .landing-early-access { flex-wrap: wrap !important; gap: 16px !important; padding: 20px 24px !important; }
-          .landing-cta-section { padding: 64px 24px !important; }
-          .landing-cta-h2 { font-size: clamp(28px, 4vw, 40px) !important; }
-          .landing-footer { padding: 24px !important; }
-          .landing-section-inner { padding: 0 24px !important; }
+        @media (prefers-reduced-motion: no-preference) {
+          html {
+            scroll-behavior: smooth;
+          }
         }
       `}</style>
 
-      {/* ═══ NAV ═══ */}
-      <nav style={{
-        position: 'sticky', top: 0, zIndex: 50,
-        background: `${T.ivory}F0`, backdropFilter: 'blur(12px)',
-        borderBottom: `1px solid ${T.ruleLight}`,
-      }}>
-        <div className="landing-nav-inner" style={{
-          maxWidth: 1120, margin: '0 auto', padding: '0 32px',
-          height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <span style={{ fontSize: 15, fontWeight: 600, fontFamily: font.body, letterSpacing: '-0.01em', color: T.ink }}>
-            nooterra
-          </span>
-          <div className="landing-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <a href="#how" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>How it works</a>
-            <a href="#pricing" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Pricing</a>
-            <a href="/login" className="nav-text-link" style={{ fontSize: 13, color: T.iron, textDecoration: 'none', fontFamily: font.body }}>Sign in</a>
-            <a href="/setup" style={{
-              fontSize: 12, fontWeight: 600, fontFamily: font.body,
-              color: T.ivory, background: T.ink, padding: '7px 16px',
-              borderRadius: 2, textDecoration: 'none', letterSpacing: '0.01em',
-            }}>
-              Get started
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 opacity-60"
+        style={{
+          backgroundImage: `linear-gradient(to right, ${PALETTE.line} 1px, transparent 1px), linear-gradient(to bottom, ${PALETTE.line} 1px, transparent 1px)`,
+          backgroundSize: 'min(11vw, 120px) 100%, 100% 158px',
+          maskImage: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 92%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 92%)',
+        }}
+      />
+
+      {/* ── Nav ── */}
+      <nav
+        className="sticky top-0 z-50 border-b"
+        style={{ borderColor: PALETTE.line, background: 'rgba(244, 240, 232, 0.9)', backdropFilter: 'blur(14px)' }}
+      >
+        <div className="mx-auto flex max-w-[78rem] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <a href="/" className="inline-flex items-center gap-3 no-underline">
+            <NooterraLogo />
+            <span className="text-[1.05rem] font-semibold tracking-[-0.04em]" style={{ color: PALETTE.ink }}>
+              Nooterra
+            </span>
+          </a>
+
+          <div className="hidden items-center gap-8 md:flex">
+            <a href="#how-it-works" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+              How it works
+            </a>
+            <a href="#why-nooterra" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+              Why Nooterra
+            </a>
+            <a href="/docs" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+              Docs
+            </a>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <a href="/login" className="hidden text-[11px] uppercase tracking-[0.2em] no-underline sm:block" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+              Sign in
+            </a>
+            <a
+              href="/setup"
+              className="inline-flex items-center justify-center border px-4 py-2 text-[11px] uppercase tracking-[0.18em] no-underline transition-colors"
+              style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+            >
+              Request access
             </a>
           </div>
         </div>
       </nav>
 
-      {/* ═══ HERO — asymmetric: text left, trace right ═══ */}
-      <section className="landing-hero-section" aria-label="Hero" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px 60px' }}>
-        <div className="landing-hero-grid" style={{ display: 'grid', gridTemplateColumns: '5fr 4fr', gap: 64, alignItems: 'start' }}>
-          <div>
-            <p style={{
-              fontSize: 11, fontFamily: font.mono, fontWeight: 500,
-              color: T.teal, letterSpacing: '0.1em', textTransform: 'uppercase',
-              marginBottom: 20,
-            }}>
-              The world model runtime
-            </p>
-            <h1 style={{
-              fontSize: 'clamp(40px, 4.5vw, 64px)',
-              fontFamily: font.display, fontWeight: 400, fontStyle: 'normal',
-              lineHeight: 1.05, letterSpacing: '-0.02em',
-              color: T.ink, margin: 0,
-            }}>
-              Give your business<br />
-              a mind.
-            </h1>
-            <p style={{
-              fontSize: 17, lineHeight: 1.65, color: T.iron,
-              fontFamily: font.body, fontWeight: 400,
-              marginTop: 24, maxWidth: 440,
-            }}>
-              Most AI agents are stateless — they forget everything between
-              runs. Nooterra gives agents a persistent world model of your
-              business: customers, invoices, payments, disputes, and the
-              policy runtime around them. Agents don't guess. They know.
-            </p>
-            <div style={{ marginTop: 36, display: 'flex', alignItems: 'center', gap: 16 }}>
-              <a href="/setup" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                fontSize: 14, fontWeight: 600, fontFamily: font.body,
-                color: T.ivory, background: T.ink, padding: '13px 28px',
-                borderRadius: 2, textDecoration: 'none',
-              }}>
-                Get started <ArrowRight size={14} />
-              </a>
-              <a href="#how" style={{
-                fontSize: 13, color: T.iron, textDecoration: 'none',
-                fontFamily: font.body, fontWeight: 500,
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-              }}>
-                See a live trace <ArrowUpRight size={13} />
-              </a>
+      <main>
+        {/* ── Section 1: Hero ── */}
+        <section className="scroll-mt-24 border-b" style={{ borderColor: PALETTE.lineStrong }}>
+          <div className="mx-auto grid max-w-[78rem] lg:grid-cols-12">
+            <div className="border-b px-4 py-14 sm:px-6 lg:col-span-7 lg:border-b-0 lg:border-r lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+              <motion.div {...loadProps(reducedMotion, 0.04)} className="inline-flex items-center gap-3 border px-3 py-2 text-[11px] uppercase tracking-[0.18em]" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel, color: PALETTE.teal, fontFamily: FONTS.mono }}>
+                <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.teal }} />
+                Now in early access
+              </motion.div>
+
+              <motion.h1
+                {...loadProps(reducedMotion, 0.1)}
+                className="mt-8 max-w-[14ch] text-[clamp(2.8rem,7vw,5.5rem)] font-medium leading-[0.95] tracking-[-0.05em]"
+              >
+                Hire your first AI collections specialist
+              </motion.h1>
+
+              <motion.p
+                {...loadProps(reducedMotion, 0.18)}
+                className="mt-8 max-w-[38rem] text-lg leading-8 sm:text-xl"
+                style={{ color: PALETTE.steel }}
+              >
+                Riley connects to Stripe, builds context from your actual invoice and payment data, and starts recovering overdue revenue — with evidence-backed judgment, policy guardrails, and a full audit trail.
+              </motion.p>
+
+              <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <a
+                  href="/setup"
+                  className="inline-flex items-center justify-center gap-2 border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+                >
+                  Get Started
+                  <ArrowRight size={14} />
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="inline-flex items-center justify-center border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
+                >
+                  See how it works
+                </a>
+              </motion.div>
             </div>
 
-            {/* Credibility strip — not logos, just text */}
-            <div className="landing-credibility-strip" style={{
-              marginTop: 56, paddingTop: 24, borderTop: `1px solid ${T.rule}`,
-              display: 'flex', gap: 32,
-            }}>
-              {[
-                { label: 'Models', value: 'OpenAI, Anthropic, Google' },
-                { label: 'Live source', value: 'Stripe-first in this milestone' },
-                { label: 'Infrastructure', value: 'Railway + Postgres' },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <span style={{ fontSize: 10, fontFamily: font.mono, color: T.stone, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block' }}>
-                    {label}
-                  </span>
-                  <span style={{ fontSize: 13, fontFamily: font.body, fontWeight: 500, color: T.iron, marginTop: 2, display: 'block' }}>
-                    {value}
-                  </span>
-                </div>
+            <div
+              className="px-4 py-10 sm:px-6 lg:col-span-5 lg:px-8 lg:py-20"
+              style={{ background: 'linear-gradient(180deg, rgba(250,247,241,0.96), rgba(236,228,215,0.92))' }}
+            >
+              <motion.div {...loadProps(reducedMotion, 0.1)} className="mb-5 flex items-center justify-between gap-4 border-b pb-4" style={{ borderColor: PALETTE.line, color: PALETTE.steelSoft }}>
+                <span className="text-[11px] uppercase tracking-[0.22em]" style={{ fontFamily: FONTS.mono }}>
+                  Live governance review
+                </span>
+                <span className="text-[11px] uppercase tracking-[0.22em]" style={{ fontFamily: FONTS.mono }}>
+                  One invoice. One decision.
+                </span>
+              </motion.div>
+              <DecisionDossierMockup />
+            </div>
+          </div>
+
+          <div className="mx-auto max-w-[78rem] border-t" style={{ borderColor: PALETTE.lineStrong }}>
+            <div className="grid md:grid-cols-3">
+              {PROOF_POINTS.map((item, index) => (
+                <motion.div
+                  key={item.label}
+                  {...revealProps(reducedMotion, index * 0.05)}
+                  className={`border-b px-4 py-5 md:border-b-0 md:px-6 lg:px-8 ${index < PROOF_POINTS.length - 1 ? 'md:border-r' : ''}`}
+                  style={{ borderColor: PALETTE.line }}
+                >
+                  <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+                    {item.label}
+                  </div>
+                  <div className="mt-2 text-base font-medium sm:text-lg">{item.value}</div>
+                </motion.div>
               ))}
             </div>
           </div>
+        </section>
 
-          {/* Right: Interactive trace */}
-          <TraceWalkthrough />
-        </div>
-      </section>
+        {/* ── Section 2: How it works ── */}
+        <section id="how-it-works" className="scroll-mt-24 border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+          <div className="mx-auto grid max-w-[78rem] gap-10 lg:grid-cols-[0.95fr_1.4fr]">
+            <motion.div {...revealProps(reducedMotion, 0.04)}>
+              <SectionLabel>How it works</SectionLabel>
+              <h2 className="max-w-[14ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                Connect Stripe. Set policies. See every decision.
+              </h2>
+              <p className="mt-5 max-w-[34rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
+                Nooterra builds a live model of your revenue operations from Stripe data. Every event that
+                needs a decision — overdue invoice, refund request, dispute, subscription change — gets
+                triaged, governed, and tracked automatically.
+              </p>
+            </motion.div>
 
-      {/* ═══ SOCIAL PROOF ═══ */}
-      <div style={{ borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`, background: T.paper }}>
-        <div className="landing-social-proof" style={{
-          maxWidth: 720, margin: '0 auto', padding: '40px 32px',
-          textAlign: 'center',
-        }}>
-          <p style={{
-            fontSize: 18, fontFamily: font.display, fontStyle: 'italic',
-            lineHeight: 1.55, color: T.ink, margin: 0,
-          }}>
-            Other platforms give you chatbots. We give you an autonomous
-            business layer — a live object graph, a policy engine, a trust
-            framework, and agents that earn the right to act on your behalf.
-          </p>
-          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.teal }} />
-            <span style={{ fontSize: 12, fontFamily: font.body, fontWeight: 500, color: T.iron }}>
-              Stripe-first world runtime, live now
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══ PROBLEM — full-width prose, no cards ═══ */}
-      <section className="landing-problem-section" style={{ maxWidth: 640, margin: '0 auto', padding: '80px 32px' }}>
-        <p style={{
-          fontSize: 11, fontFamily: font.mono, fontWeight: 500, color: T.ember,
-          letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16,
-        }}>
-          The problem
-        </p>
-        <p style={{
-          fontSize: 21, fontFamily: font.display, fontStyle: 'italic',
-          lineHeight: 1.5, color: T.ink,
-        }}>
-          Your business runs on 12 different apps. None of them talk to each
-          other. AI chatbots can't help — they don't know your customers, your
-          invoices, or your history. Your business doesn't need another tool.
-          It needs a brain.
-        </p>
-        <p style={{
-          fontSize: 15, fontFamily: font.body, lineHeight: 1.7, color: T.iron,
-          marginTop: 20,
-        }}>
-          Invoices slip because nobody followed up. Customers churn because the
-          warning signs were in three different apps. Revenue leaks through the
-          cracks between your systems. Not because you're negligent — because
-          there's only one of you and the business needs thirty.
-        </p>
-      </section>
-
-      {/* ═══ HOW IT WORKS — vertical timeline, not cards ═══ */}
-      <section id="how" aria-label="How it works" className="landing-how-section" style={{
-        background: T.paper, borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`,
-        padding: '80px 32px',
-      }}>
-        <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-          <p style={{
-            fontSize: 11, fontFamily: font.mono, fontWeight: 500, color: T.teal,
-            letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16,
-          }}>
-            How it works
-          </p>
-          <h2 style={{
-            fontSize: 36, fontFamily: font.display, fontWeight: 400,
-            lineHeight: 1.15, color: T.ink, marginBottom: 48, maxWidth: 500,
-          }}>
-            From zero to autonomous<br />
-            in five steps.
-          </h2>
-
-          {/* Timeline */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 640 }}>
-            {[
-              { step: 'Connect', time: 'Minute 1', body: 'Connect Stripe first. The runtime starts recording customer, invoice, payment, and dispute events immediately.' },
-              { step: 'Model', time: 'Minute 10', body: 'Customers, invoices, payments, and disputes appear in a live object graph. Additional sources layer in later without changing the core model.' },
-              { step: 'Predict', time: 'Hour 1', body: 'Hidden state estimates appear on every object. Payment probability. Churn risk. Urgency scores. Each prediction shows its confidence level and what evidence it used.' },
-              { step: 'Operate', time: 'Day 1', body: 'The collections agent proposes its first actions in shadow mode. You review every one. Nothing sends without your approval. Evidence bundles show exactly why each action was chosen.' },
-              { step: 'Trust', time: 'Week 3', body: 'After 20+ proposals with 85%+ quality scores, the system recommends expanding autonomy. You approve. Now routine reminders send automatically. One incident and it stops.' },
-            ].map(({ step, time, body }, i) => (
-              <div key={step} style={{ display: 'flex', gap: 32, position: 'relative' }}>
-                {/* Vertical line */}
-                <div style={{ width: 56, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: i === 0 ? T.teal : T.rule, flexShrink: 0, marginTop: 6,
-                  }} />
-                  {i < 4 && <div style={{ width: 1, flex: 1, background: T.rule }} />}
-                </div>
-                <div style={{ paddingBottom: 40 }}>
-                  <span style={{
-                    fontSize: 10, fontFamily: font.mono, fontWeight: 500,
-                    color: T.teal, letterSpacing: '0.08em', textTransform: 'uppercase',
-                  }}>
-                    {time}
-                  </span>
-                  <h3 style={{
-                    fontSize: 18, fontFamily: font.body, fontWeight: 600,
-                    color: T.ink, marginTop: 4, marginBottom: 6,
-                  }}>
-                    {step}
-                  </h3>
-                  <p style={{
-                    fontSize: 14, fontFamily: font.body, lineHeight: 1.65,
-                    color: T.iron, margin: 0,
-                  }}>
-                    {body}
-                  </p>
-                </div>
+            <div className="border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel }}>
+              <div className="grid md:grid-cols-2 xl:grid-cols-4">
+                {HOW_STEPS.map((item, index) => (
+                  <motion.div
+                    key={item.step}
+                    {...revealProps(reducedMotion, index * 0.05)}
+                    className={`border-b px-4 py-6 md:px-5 xl:border-b-0 ${index < HOW_STEPS.length - 1 ? 'xl:border-r' : ''}`}
+                    style={{ borderColor: PALETTE.line }}
+                  >
+                    <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.teal, fontFamily: FONTS.mono }}>
+                      {item.step}
+                    </div>
+                    <h3 className="mt-4 text-xl font-medium tracking-[-0.03em]">{item.title}</h3>
+                    <p className="mt-4 text-sm leading-7" style={{ color: PALETTE.steel }}>
+                      {item.body}
+                    </p>
+                  </motion.div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ═══ DIFFERENCE — table, not cards ═══ */}
-      <section className="landing-difference-section" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
-        <h2 style={{
-          fontSize: 32, fontFamily: font.display, fontWeight: 400,
-          lineHeight: 1.15, color: T.ink, marginBottom: 40,
-        }}>
-          Why a world model changes<br />everything.
-        </h2>
-
-        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <table className="landing-difference-table" style={{
-          width: '100%', borderCollapse: 'collapse',
-          fontFamily: font.body, fontSize: 13,
-        }}>
-          <thead>
-            <tr style={{ borderBottom: `2px solid ${T.ink}` }}>
-              <th style={{ textAlign: 'left', padding: '10px 16px 10px 0', fontWeight: 600, fontSize: 11, fontFamily: font.mono, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.stone }}>Capability</th>
-              <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 600, fontSize: 11, color: T.stone }}>ChatGPT</th>
-              <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 600, fontSize: 11, color: T.stone }}>Zapier</th>
-              <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 600, fontSize: 11, color: T.teal }}>Nooterra</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              ['Persistent world model', '—', '—', '✓'],
-              ['Cross-system entity graph', '—', '—', '✓'],
-              ['Takes real actions', '—', '✓', '✓'],
-              ['Policy-governed execution', '—', '—', '✓'],
-              ['Earned autonomy (not configured)', '—', '—', '✓'],
-              ['Full evidence trail per action', '—', '—', '✓'],
-              ['Closed-loop learning', '—', '—', '✓'],
-            ].map(([cap, chatgpt, zapier, nooterra], i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${T.ruleLight}` }}>
-                <td style={{ padding: '12px 16px 12px 0', color: T.ink }}>{cap}</td>
-                <td style={{ textAlign: 'center', padding: '12px 16px', color: T.stone }}>{chatgpt}</td>
-                <td style={{ textAlign: 'center', padding: '12px 16px', color: T.stone }}>{zapier}</td>
-                <td style={{ textAlign: 'center', padding: '12px 16px', color: T.teal, fontWeight: 600 }}>{nooterra}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      </section>
-
-      {/* ═══ TRUST — horizontal progression, not cards ═══ */}
-      <section className="landing-trust-section" style={{
-        background: T.paper, borderTop: `1px solid ${T.rule}`, borderBottom: `1px solid ${T.rule}`,
-        padding: '80px 32px',
-      }}>
-        <div style={{ maxWidth: 1120, margin: '0 auto' }}>
-          <h2 style={{
-            fontSize: 32, fontFamily: font.display, fontWeight: 400,
-            lineHeight: 1.15, color: T.ink, marginBottom: 12, maxWidth: 440,
-          }}>
-            Autonomy isn't granted.<br />
-            It's earned.
-          </h2>
-          <p style={{ fontSize: 14, fontFamily: font.body, color: T.iron, maxWidth: 480, lineHeight: 1.6, marginBottom: 48 }}>
-            Every agent action is scored on process and outcome. Trust expands only
-            when both are consistently high. One incident and the system tightens automatically.
-          </p>
-
-          {/* Horizontal progression */}
-          <div className="landing-trust-grid" style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
-            {[
-              { phase: 'Shadow', range: 'Week 1–2', desc: 'Agent proposes actions. Nothing executes. You see every decision it would make.', score: 'Observe only', color: T.gold },
-              { phase: 'Supervised', range: 'Week 3–4', desc: 'Agent drafts actions. You approve with one click. The system tracks your approval patterns.', score: 'Human-in-the-loop', color: T.teal },
-              { phase: 'Autonomous', range: 'Week 5+', desc: 'Proven action types execute automatically. Still logged, still auditable, still governed. One incident demotes immediately.', score: 'Earned autonomy', color: T.sage },
-            ].map(({ phase, range, desc, score, color }, i) => (
-              <div key={phase} style={{
-                flex: 1, padding: '28px 24px',
-                borderTop: `3px solid ${color}`,
-                background: T.ivory,
-                borderRight: i < 2 ? `1px solid ${T.rule}` : 'none',
-              }}>
-                <span style={{ fontSize: 10, fontFamily: font.mono, fontWeight: 600, color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {range}
+        {/* ── Section 3: Why not just use Stripe? ── */}
+        <section id="why-nooterra" className="scroll-mt-24 border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+          <div className="mx-auto max-w-[78rem]">
+            <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
+              <SectionLabel>Stripe handles recovery. You still need judgment.</SectionLabel>
+              <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                Stripe automates retries.{' '}
+                <span style={{ color: PALETTE.steel }}>
+                  Nooterra governs the decisions Stripe leaves to you.
                 </span>
-                <h3 style={{ fontSize: 18, fontFamily: font.body, fontWeight: 600, color: T.ink, marginTop: 8, marginBottom: 8 }}>
-                  {phase}
-                </h3>
-                <p style={{ fontSize: 13, fontFamily: font.body, lineHeight: 1.55, color: T.iron, margin: 0 }}>
-                  {desc}
+              </h2>
+            </motion.div>
+
+            <div className="grid gap-px border md:grid-cols-2" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.lineStrong }}>
+              <motion.div {...revealProps(reducedMotion, 0.04)} className="px-5 py-6 sm:px-6" style={{ background: PALETTE.panel }}>
+                <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+                  What Stripe handles
+                </div>
+                <div className="mt-5 space-y-3">
+                  {STRIPE_HANDLES.map((item) => (
+                    <div key={item} className="flex items-center gap-3 text-sm" style={{ color: PALETTE.steel }}>
+                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center border text-[10px]" style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}>
+                        OK
+                      </span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+
+              <motion.div {...revealProps(reducedMotion, 0.08)} className="px-5 py-6 sm:px-6" style={{ background: PALETTE.paper }}>
+                <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.teal, fontFamily: FONTS.mono }}>
+                  What Nooterra governs
+                </div>
+                <div className="mt-5 space-y-3">
+                  {NOOTERRA_GOVERNS.map((item) => (
+                    <div key={item} className="flex items-center gap-3 text-sm" style={{ color: PALETTE.ink }}>
+                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center border text-[10px]" style={{ borderColor: PALETTE.teal, background: PALETTE.tealSoft, fontFamily: FONTS.mono, color: PALETTE.teal }}>
+                        GO
+                      </span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Section 4: Trust signals ── */}
+        <section className="border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+          <div className="mx-auto max-w-[78rem]">
+            <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
+              <SectionLabel>Built for finance teams who cannot afford mistakes</SectionLabel>
+              <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                Prove it works before you go live.
+              </h2>
+            </motion.div>
+
+            <div className="border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel }}>
+              <div className="grid lg:grid-cols-3">
+                {TRUST_POINTS.map((item, index) => (
+                  <motion.div
+                    key={item.title}
+                    {...revealProps(reducedMotion, index * 0.04)}
+                    className={`border-b px-5 py-6 lg:border-b-0 ${index < TRUST_POINTS.length - 1 ? 'lg:border-r' : ''}`}
+                    style={{ borderColor: PALETTE.line }}
+                  >
+                    <h3 className="text-lg font-medium tracking-[-0.03em]">{item.title}</h3>
+                    <p className="mt-4 text-sm leading-7" style={{ color: PALETTE.steel }}>
+                      {item.body}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+
+            <motion.p
+              {...revealProps(reducedMotion, 0.12)}
+              className="mt-6 text-sm leading-7"
+              style={{ color: PALETTE.steelSoft }}
+            >
+              Under the hood: live state graph, deterministic policy engine, and closed-loop learning from real
+              outcomes.{' '}
+              <a href="/docs" className="underline" style={{ color: PALETTE.teal }}>
+                Read the technical deep dive
+              </a>
+            </motion.p>
+          </div>
+        </section>
+
+        {/* ── Section 5: Bottom CTA ── */}
+        <section className="px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+          <motion.div
+            {...revealProps(reducedMotion, 0.04)}
+            className="mx-auto max-w-[78rem] border p-6 sm:p-8 lg:p-10"
+            style={{ borderColor: PALETTE.lineStrong, background: 'linear-gradient(135deg, rgba(250,247,241,0.98), rgba(236,228,215,0.94))' }}
+          >
+            <div className="grid gap-8 lg:grid-cols-[1.25fr_0.85fr] lg:items-end">
+              <div>
+                <SectionLabel>Early access</SectionLabel>
+                <h2 className="max-w-[16ch] text-[clamp(2rem,4vw,3.25rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+                  We're onboarding 10 finance teams this quarter.
+                </h2>
+                <p className="mt-5 max-w-[38rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
+                  Connect Stripe, set your policies, and see governed decisions on live revenue data
+                  within your first session.
                 </p>
-                <span style={{ display: 'inline-block', marginTop: 12, fontSize: 10, fontFamily: font.mono, color, letterSpacing: '0.02em' }}>
-                  {score}
-                </span>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ═══ PRICING — minimal, asymmetric ═══ */}
-      <section id="pricing" aria-label="Pricing" className="landing-pricing-section" style={{ maxWidth: 1120, margin: '0 auto', padding: '80px 32px' }}>
-        <div className="landing-pricing-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 64, alignItems: 'start' }}>
-          <div>
-            <h2 style={{
-              fontSize: 32, fontFamily: font.display, fontWeight: 400,
-              lineHeight: 1.15, color: T.ink,
-            }}>
-              Pricing
-            </h2>
-            <p style={{
-              fontSize: 14, fontFamily: font.body, lineHeight: 1.6,
-              color: T.iron, marginTop: 12,
-            }}>
-              Design partners first.<br />
-              No-card sandbox after the activation loop is real.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {[
-              { name: 'Sandbox', price: 'Trial', desc: '14-30 day Stripe-first shadow mode. One runtime, no-card, no autonomous sends.', highlight: false },
-              { name: 'Starter', price: '$99', desc: 'Stripe world model, company state, predictions, and governed collections for the first finance owner.', highlight: true },
-              { name: 'Growth', price: '$299', desc: 'More invoice volume, more operators, deeper gateway workflows, and autonomy progression.', highlight: false },
-              { name: 'Finance Ops', price: '$799+', desc: 'Audit exports, policy control, multi-user operations, and premium support.', highlight: false },
-              { name: 'Enterprise', price: 'Contact us', desc: 'Custom integrations, security review, dedicated infrastructure, and partner rollout support.', highlight: false },
-            ].map(({ name, price, desc, highlight }) => (
-              <div key={name} className="landing-pricing-row" style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '24px 0',
-                borderBottom: `1px solid ${T.rule}`,
-                background: highlight ? T.tealSoft : 'transparent',
-                marginLeft: highlight ? -16 : 0, marginRight: highlight ? -16 : 0,
-                paddingLeft: highlight ? 16 : 0, paddingRight: highlight ? 16 : 0,
-                borderRadius: highlight ? 2 : 0,
-              }}>
-                <div>
-                  <span style={{ fontSize: 16, fontFamily: font.body, fontWeight: 600, color: T.ink }}>{name}</span>
-                  <p style={{ fontSize: 13, fontFamily: font.body, color: T.iron, marginTop: 2, margin: 0 }}>{desc}</p>
-                </div>
-                <div className="landing-pricing-row-right" style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
-                  <span style={{ fontSize: 20, fontFamily: font.display, fontWeight: 400, color: T.ink }}>
-                    {price}<span style={{ fontSize: 13, color: T.stone }}>{price.startsWith('$') ? '/mo' : ''}</span>
-                  </span>
-                  <a href="/setup" style={{
-                    fontSize: 12, fontWeight: 600, fontFamily: font.body,
-                    color: highlight ? T.ivory : T.ink,
-                    background: highlight ? T.ink : 'transparent',
-                    border: highlight ? 'none' : `1px solid ${T.rule}`,
-                    padding: '8px 16px', borderRadius: 2, textDecoration: 'none',
-                  }}>
-                    {name === 'Enterprise' ? 'Contact us' : name === 'Sandbox' ? 'Start setup' : 'Start setup'}
-                  </a>
-                </div>
+              <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
+                <a
+                  href="/setup"
+                  className="inline-flex items-center justify-center gap-2 border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+                >
+                  Request access
+                  <ArrowRight size={14} />
+                </a>
+                <a
+                  href="/docs"
+                  className="inline-flex items-center justify-center border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
+                >
+                  Read the docs
+                </a>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
+            </div>
+          </motion.div>
+        </section>
+      </main>
 
-      {/* ═══ EARLY ACCESS SIGNAL ═══ */}
-      <div style={{
-        maxWidth: 1120, margin: '0 auto', padding: '0 32px',
-      }}>
-        <div className="landing-early-access" style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24,
-          padding: '20px 0',
-        }}>
-          {[
-            'Stripe is the only live world-model source in this milestone',
-            'Conversation sources arrive after the Stripe-first loop is calibrated',
-          ].map((text, i) => (
-            <span key={i} style={{
-              fontSize: 12, fontFamily: font.body, color: T.stone,
-              display: 'flex', alignItems: 'center', gap: 8,
-            }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: T.teal, flexShrink: 0 }} />
-              {text}
+      <footer className="border-t px-4 py-6 sm:px-6 lg:px-8" style={{ borderColor: PALETTE.lineStrong }}>
+        <div className="mx-auto flex max-w-[78rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="inline-flex items-center gap-3">
+            <NooterraLogo size={18} />
+            <span className="text-sm" style={{ color: PALETTE.steel }}>
+              Nooterra
             </span>
-          ))}
-        </div>
-      </div>
-
-      {/* ═══ FINAL CTA — stark, confident ═══ */}
-      <section className="landing-cta-section" style={{
-        borderTop: `1px solid ${T.rule}`,
-        padding: '80px 32px',
-        textAlign: 'center',
-      }}>
-        <h2 className="landing-cta-h2" style={{
-          fontSize: 40, fontFamily: font.display, fontWeight: 400,
-          lineHeight: 1.1, color: T.ink, marginBottom: 16,
-        }}>
-          The first AI runtime that<br />
-          actually understands your business.
-        </h2>
-        <p style={{ fontSize: 15, fontFamily: font.body, color: T.iron, maxWidth: 400, margin: '0 auto' }}>
-          A live world model. Policy-governed agents.<br />
-          Autonomy earned from evidence, not settings.
-        </p>
-        <a href="/setup" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          fontSize: 14, fontWeight: 600, fontFamily: font.body,
-          color: T.ivory, background: T.ink, padding: '14px 32px',
-          borderRadius: 2, textDecoration: 'none', marginTop: 32,
-        }}>
-          Start Stripe setup <ArrowRight size={14} />
-        </a>
-      </section>
-
-      {/* ═══ FOOTER ═══ */}
-      <footer className="landing-footer" style={{
-        borderTop: `1px solid ${T.rule}`, padding: '24px 32px',
-        maxWidth: 1120, margin: '0 auto',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <span style={{ fontSize: 11, fontFamily: font.body, color: T.stone }}>Nooterra Labs, Inc.</span>
-        <div style={{ display: 'flex', gap: 20 }}>
-          {['Docs', 'Privacy', 'Terms', 'GitHub'].map(link => (
-            <a key={link} href={`/${link.toLowerCase()}`} style={{
-              fontSize: 11, fontFamily: font.body, color: T.stone, textDecoration: 'none',
-            }}>
-              {link}
-            </a>
-          ))}
+          </div>
+          <div className="flex flex-wrap gap-4 text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+            <a href="/docs" className="no-underline" style={{ color: 'inherit' }}>Docs</a>
+            <a href="/privacy" className="no-underline" style={{ color: 'inherit' }}>Privacy</a>
+            <a href="/terms" className="no-underline" style={{ color: 'inherit' }}>Terms</a>
+            <a href="https://github.com/nooterra/nooterra" className="no-underline" style={{ color: 'inherit' }}>GitHub</a>
+          </div>
         </div>
       </footer>
     </div>

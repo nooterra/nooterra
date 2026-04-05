@@ -11,8 +11,15 @@ const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
 
 // World Runtime views (new)
 const LandingPage = lazy(() => import("./site/LandingPage.jsx"));
+const ScanReveal = lazy(() => import("./site/ScanReveal.jsx"));
 const WorldRuntimeShell = lazy(() => import("./views/WorldRuntimeShell.jsx"));
 const Onboarding2 = lazy(() => import("./views/Onboarding.jsx"));
+const SetupFlow = lazy(() => import("./views/onboarding/SetupFlow.jsx"));
+const EmployeeShell = lazy(() => import("./views/EmployeeShell.jsx"));
+const EmployeeDashboard = lazy(() => import("./views/EmployeeDashboard.jsx"));
+const ApprovalInbox = lazy(() => import("./views/ApprovalInbox.jsx"));
+const AccountBrief = lazy(() => import("./views/AccountBrief.jsx"));
+const EmployeeSettings = lazy(() => import("./views/EmployeeSettings.jsx"));
 const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
 const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
 
@@ -35,7 +42,22 @@ function getRouteMode() {
   if (path === "/policies") return { mode: "policy_editor", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/queue") return { mode: "approval_queue", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/v2") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
-  if (path === "/setup") return { mode: "onboarding_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/scan") return { mode: "scan_reveal", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/setup") return { mode: "setup", launchId: null, agentId: null, runId: null, requestedPath: null };
+
+  // Employee routes
+  const empMatch = path.match(/^\/employees\/([^/]+)$/);
+  if (empMatch) return { mode: "employee_dashboard", launchId: null, agentId: null, runId: null, requestedPath: null, employeeId: empMatch[1] };
+
+  const empApprovalsMatch = path.match(/^\/employees\/([^/]+)\/approvals$/);
+  if (empApprovalsMatch) return { mode: "employee_approvals", launchId: null, agentId: null, runId: null, requestedPath: null, employeeId: empApprovalsMatch[1] };
+
+  const empAccountMatch = path.match(/^\/employees\/([^/]+)\/accounts\/([^/]+)$/);
+  if (empAccountMatch) return { mode: "employee_account", launchId: null, agentId: null, runId: null, requestedPath: null, employeeId: empAccountMatch[1], objectId: empAccountMatch[2] };
+
+  const empSettingsMatch = path.match(/^\/employees\/([^/]+)\/settings$/);
+  if (empSettingsMatch) return { mode: "employee_settings", launchId: null, agentId: null, runId: null, requestedPath: null, employeeId: empSettingsMatch[1] };
+
   if (path === "/demo") return { mode: "demo", launchId: null, agentId: null, runId: null, requestedPath: null };
 
   if (path === "/operator") return { mode: "operator", launchId: null, agentId: null, runId: null, requestedPath: null };
@@ -240,6 +262,32 @@ export default function App() {
     );
   }
 
+  if (route.mode === 'setup') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading setup" />}>
+        <SetupFlow />
+      </Suspense>
+    );
+  }
+
+  const employeeModes = new Set(['employee_dashboard', 'employee_approvals', 'employee_account', 'employee_settings']);
+  if (employeeModes.has(route.mode)) {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading" />}>
+        <EmployeeShell employeeId={route.employeeId} initialView={route.mode.replace('employee_', '')}>
+          {({ summary, refreshSummary }) => (
+            <>
+              {route.mode === 'employee_dashboard' && <EmployeeDashboard summary={summary} />}
+              {route.mode === 'employee_approvals' && <ApprovalInbox summary={summary} refreshSummary={refreshSummary} />}
+              {route.mode === 'employee_account' && <AccountBrief objectId={route.objectId} employeeId={route.employeeId} />}
+              {route.mode === 'employee_settings' && <EmployeeSettings summary={summary} />}
+            </>
+          )}
+        </EmployeeShell>
+      </Suspense>
+    );
+  }
+
   // World Runtime Shell — wraps all 6 dashboard views in shared chrome
   const shellModes = new Set([
     'command_center', 'company_state', 'predictions',
@@ -278,6 +326,14 @@ export default function App() {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
         <LandingPage />
+      </Suspense>
+    );
+  }
+
+  if (route.mode === 'scan_reveal') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading scan" />}>
+        <ScanReveal />
       </Suspense>
     );
   }
