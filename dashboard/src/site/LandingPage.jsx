@@ -25,54 +25,54 @@ const EASE = [0.16, 1, 0.3, 1];
 
 const PROOF_POINTS = [
   { label: 'Stripe setup', value: '60 seconds' },
-  { label: 'Every decision', value: 'Logged and auditable' },
-  { label: 'Go-live model', value: 'Shadow mode first' },
+  { label: 'Every decision', value: 'Evidence + audit trail' },
+  { label: 'Go-live model', value: 'Approval-first' },
 ];
 
 const HOW_STEPS = [
   {
     step: '01',
     title: 'Connect Stripe',
-    body: 'Link your account. Nooterra ingests your customers, invoices, payments, and subscriptions in minutes.',
+    body: 'Add your Stripe key. Nooterra backfills customers, invoices, payments, and dispute signals in minutes.',
   },
   {
     step: '02',
     title: 'Set your policies',
-    body: 'Define refund limits, approval thresholds, escalation rules. The system enforces them on every event.',
+    body: 'Set approval thresholds, outreach cadence, and business-hours guardrails. Riley follows them on every recommendation.',
   },
   {
     step: '03',
     title: 'Review flagged decisions',
-    body: 'Each event gets a risk score, recommended action, and evidence trail. Your team approves or overrides.',
+    body: 'Riley ranks overdue accounts, recommends the next action, and shows the evidence behind it. Your team approves or rejects.',
   },
   {
     step: '04',
     title: 'Watch it sharpen',
-    body: 'Every outcome feeds back in. Predictions improve. The system earns trust over time, not on day one.',
+    body: 'Payment outcomes feed back in. Coverage expands, confidence improves, and more decisions move out of the review lane over time.',
   },
 ];
 
 const STRIPE_HANDLES = [
-  'Payment retries and dunning emails',
-  'Failed payment recovery logic',
-  'Basic subscription lifecycle',
+  'Payment retries and standard dunning',
+  'Invoice delivery and payment collection',
+  'Basic subscription billing',
 ];
 
 const NOOTERRA_GOVERNS = [
-  'Which overdue invoices to escalate vs. wait on',
-  'Which refund requests to approve vs. challenge',
-  'How to respond to disputes with the right evidence',
-  'Which subscription downgrades to intercept',
+  'Which overdue accounts need a follow-up now',
+  'Which invoices should wait vs. escalate',
+  'When dispute signals should block outreach',
+  'Which actions can move automatically vs. stay in review',
 ];
 
 const TRUST_POINTS = [
   {
     title: 'Approval-first',
-    body: 'Nothing executes without operator sign-off. The system recommends. Your team decides.',
+    body: 'Riley recommends first. Your team signs off until trust is earned.',
   },
   {
-    title: 'Shadow mode',
-    body: 'Run against 12 months of Stripe history before going live. See what the AI would have recommended vs. what actually happened.',
+    title: 'Policy enforced',
+    body: 'Approval thresholds, outreach cadence, and dispute blocks are enforced on every action.',
   },
   {
     title: 'Full audit trail',
@@ -81,15 +81,15 @@ const TRUST_POINTS = [
 ];
 
 const DOSSIER_EVIDENCE = [
-  'High historical LTV and no prior dispute activity',
-  'Three failed payment attempts in the last 21 days',
-  'Customer accepted revised net terms in the prior cycle',
+  'Paid 8 of last 10 invoices within terms',
+  'No disputes filed in the past 12 months',
+  'Similar overdue invoices resolved after one follow-up',
 ];
 
 const DOSSIER_AUDIT = [
-  '11:42 UTC system ranked this invoice #3 of 48 flagged accounts',
-  '11:42 UTC policy pack `revenue.v1` passed 7/7 checks',
-  '11:43 UTC operator sign-off required before execution',
+  '11:42 UTC  Ranked #3 of 48 overdue accounts',
+  '11:42 UTC  All policy checks passed',
+  '11:43 UTC  Flagged for approval — invoice exceeds $5,000',
 ];
 
 function NooterraLogo({ size = 26 }) {
@@ -140,7 +140,7 @@ function DecisionDossierMockup() {
   return (
     <motion.aside
       {...loadProps(reducedMotion, 0.12)}
-      className="w-full max-w-[31rem] border"
+      className="w-full border"
       style={{
         background: PALETTE.panel,
         borderColor: PALETTE.lineStrong,
@@ -151,7 +151,7 @@ function DecisionDossierMockup() {
         className="flex items-center justify-between gap-4 border-b px-4 py-3 text-[11px] uppercase tracking-[0.18em] sm:px-5"
         style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}
       >
-        <span>NT-INV-8842 / Governance Review</span>
+        <span>INV-8842 / Overdue Review</span>
         <span className="inline-flex items-center gap-2" style={{ color: PALETTE.amber }}>
           <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.amber }} />
           Awaiting approval
@@ -186,12 +186,12 @@ function DecisionDossierMockup() {
       <div className="grid border-b md:grid-cols-[1.25fr_0.95fr]" style={{ borderColor: PALETTE.line }}>
         <motion.div {...loadProps(reducedMotion, 0.34)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
           <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-            Payment probability
+            Recovery likelihood
           </div>
           <div className="mt-3 flex items-end gap-3">
             <div className="text-[2.2rem] leading-none sm:text-[2.6rem]">64%</div>
             <div className="pb-1 text-xs uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Confidence 0.71
+              High confidence
             </div>
           </div>
           <div className="mt-4">
@@ -217,16 +217,16 @@ function DecisionDossierMockup() {
             Recommended action
           </div>
           <div className="mt-3 border px-3 py-3 text-sm font-medium" style={{ borderColor: PALETTE.lineStrong, background: '#191715', color: PALETTE.panel }}>
-            Offer deferred payment plan
+            Send formal follow-up email
           </div>
           <div className="mt-4 grid gap-2 text-sm" style={{ color: PALETTE.steel }}>
             <div className="flex items-center justify-between gap-4">
               <span>Alternative considered</span>
-              <span style={{ fontFamily: FONTS.mono, color: PALETTE.amber }}>Hold</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.amber }}>Escalate now</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span>Expected next outcome</span>
-              <span style={{ fontFamily: FONTS.mono, color: PALETTE.teal }}>Payment within 10d</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.teal }}>Response within 3d</span>
             </div>
           </div>
         </motion.div>
@@ -252,11 +252,11 @@ function DecisionDossierMockup() {
           </div>
           <div className="mt-3 border px-3 py-3" style={{ borderColor: PALETTE.line, background: PALETTE.paper }}>
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span>Operator sign-off</span>
+              <span>Your approval</span>
               <span style={{ color: PALETTE.amber, fontFamily: FONTS.mono }}>Required</span>
             </div>
             <div className="mt-3 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Audit log
+              Activity log
             </div>
             <div className="mt-2 space-y-2 text-xs leading-relaxed" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
               {DOSSIER_AUDIT.map((item) => (
@@ -344,8 +344,9 @@ export default function LandingPage() {
       <main>
         {/* ── Section 1: Hero ── */}
         <section className="scroll-mt-24 border-b" style={{ borderColor: PALETTE.lineStrong }}>
-          <div className="mx-auto grid max-w-[78rem] lg:grid-cols-12">
-            <div className="border-b px-4 py-14 sm:px-6 lg:col-span-7 lg:border-b-0 lg:border-r lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+          {/* Hero text — centered */}
+          <div className="mx-auto max-w-[78rem] px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+            <div className="mx-auto max-w-[52rem] text-center">
               <motion.div {...loadProps(reducedMotion, 0.04)} className="inline-flex items-center gap-3 border px-3 py-2 text-[11px] uppercase tracking-[0.18em]" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel, color: PALETTE.teal, fontFamily: FONTS.mono }}>
                 <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.teal }} />
                 Now in early access
@@ -353,51 +354,53 @@ export default function LandingPage() {
 
               <motion.h1
                 {...loadProps(reducedMotion, 0.1)}
-                className="mt-8 max-w-[14ch] text-[clamp(2.8rem,7vw,5.5rem)] font-medium leading-[0.95] tracking-[-0.05em]"
+                className="mx-auto mt-8 max-w-[18ch] text-[clamp(2.6rem,6vw,4.8rem)] font-medium leading-[0.95] tracking-[-0.04em]"
               >
-                Hire your first AI collections specialist
+                Your overdue invoices deserve a specialist
               </motion.h1>
 
               <motion.p
                 {...loadProps(reducedMotion, 0.18)}
-                className="mt-8 max-w-[38rem] text-lg leading-8 sm:text-xl"
+                className="mx-auto mt-7 max-w-[36rem] text-lg leading-8"
                 style={{ color: PALETTE.steel }}
               >
-                Riley connects to Stripe, builds context from your actual invoice and payment data, and starts recovering overdue revenue — with evidence-backed judgment, policy guardrails, and a full audit trail.
+                Nooterra is an AI collections employee. It connects to Stripe, reads your payment history, and follows up on overdue accounts with evidence-backed recommendations and policy guardrails.
               </motion.p>
 
-              <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-10 flex flex-col gap-3 sm:flex-row">
+              <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <a
                   href="/setup"
-                  className="inline-flex items-center justify-center gap-2 border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  className="inline-flex items-center justify-center gap-2 border px-6 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
                   style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
                 >
-                  Get Started
+                  Get started
                   <ArrowRight size={14} />
                 </a>
                 <a
                   href="#how-it-works"
-                  className="inline-flex items-center justify-center border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  className="inline-flex items-center justify-center border px-6 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
                   style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
                 >
                   See how it works
                 </a>
               </motion.div>
             </div>
+          </div>
 
+          {/* Product showcase — centered below hero text */}
+          <div className="border-t" style={{ borderColor: PALETTE.lineStrong }}>
             <div
-              className="px-4 py-10 sm:px-6 lg:col-span-5 lg:px-8 lg:py-20"
+              className="mx-auto max-w-[78rem] px-4 py-10 sm:px-6 lg:px-8 lg:py-14"
               style={{ background: 'linear-gradient(180deg, rgba(250,247,241,0.96), rgba(236,228,215,0.92))' }}
             >
-              <motion.div {...loadProps(reducedMotion, 0.1)} className="mb-5 flex items-center justify-between gap-4 border-b pb-4" style={{ borderColor: PALETTE.line, color: PALETTE.steelSoft }}>
+              <motion.div {...loadProps(reducedMotion, 0.1)} className="mb-5 flex items-center justify-center gap-6 border-b pb-4" style={{ borderColor: PALETTE.line, color: PALETTE.steelSoft }}>
                 <span className="text-[11px] uppercase tracking-[0.22em]" style={{ fontFamily: FONTS.mono }}>
-                  Live governance review
-                </span>
-                <span className="text-[11px] uppercase tracking-[0.22em]" style={{ fontFamily: FONTS.mono }}>
-                  One invoice. One decision.
+                  What a collections review looks like
                 </span>
               </motion.div>
-              <DecisionDossierMockup />
+              <div className="mx-auto max-w-[54rem]">
+                <DecisionDossierMockup />
+              </div>
             </div>
           </div>
 
@@ -421,7 +424,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── Section 2: How it works ── */}
-        <section id="how-it-works" className="scroll-mt-24 border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+        <section id="how-it-works" className="scroll-mt-24 border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
           <div className="mx-auto grid max-w-[78rem] gap-10 lg:grid-cols-[0.95fr_1.4fr]">
             <motion.div {...revealProps(reducedMotion, 0.04)}>
               <SectionLabel>How it works</SectionLabel>
@@ -429,9 +432,9 @@ export default function LandingPage() {
                 Connect Stripe. Set policies. See every decision.
               </h2>
               <p className="mt-5 max-w-[34rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
-                Nooterra builds a live model of your revenue operations from Stripe data. Every event that
-                needs a decision — overdue invoice, refund request, dispute, subscription change — gets
-                triaged, governed, and tracked automatically.
+                Nooterra builds a working view of your receivables from Stripe. Overdue invoices are ranked,
+                routed through policy, and surfaced with the evidence your team needs to approve or reject
+                the next step.
               </p>
             </motion.div>
 
@@ -459,14 +462,14 @@ export default function LandingPage() {
         </section>
 
         {/* ── Section 3: Why not just use Stripe? ── */}
-        <section id="why-nooterra" className="scroll-mt-24 border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+        <section id="why-nooterra" className="scroll-mt-24 border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
           <div className="mx-auto max-w-[78rem]">
             <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
-              <SectionLabel>Stripe handles recovery. You still need judgment.</SectionLabel>
+              <SectionLabel>Stripe handles billing. You still need collections judgment.</SectionLabel>
               <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
                 Stripe automates retries.{' '}
                 <span style={{ color: PALETTE.steel }}>
-                  Nooterra governs the decisions Stripe leaves to you.
+                  Nooterra decides what happens next.
                 </span>
               </h2>
             </motion.div>
@@ -508,12 +511,12 @@ export default function LandingPage() {
         </section>
 
         {/* ── Section 4: Trust signals ── */}
-        <section className="border-b px-4 py-16 sm:px-6 lg:px-8 lg:py-20" style={{ borderColor: PALETTE.lineStrong }}>
+        <section className="border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
           <div className="mx-auto max-w-[78rem]">
             <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
               <SectionLabel>Built for finance teams who cannot afford mistakes</SectionLabel>
               <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Prove it works before you go live.
+                Go live only after the system earns trust.
               </h2>
             </motion.div>
 
@@ -540,7 +543,7 @@ export default function LandingPage() {
               className="mt-6 text-sm leading-7"
               style={{ color: PALETTE.steelSoft }}
             >
-              Under the hood: live state graph, deterministic policy engine, and closed-loop learning from real
+              Under the hood: event ledger, policy engine, and closed-loop learning from real payment
               outcomes.{' '}
               <a href="/docs" className="underline" style={{ color: PALETTE.teal }}>
                 Read the technical deep dive
@@ -550,7 +553,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── Section 5: Bottom CTA ── */}
-        <section className="px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <section className="px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
           <motion.div
             {...revealProps(reducedMotion, 0.04)}
             className="mx-auto max-w-[78rem] border p-6 sm:p-8 lg:p-10"
@@ -560,11 +563,11 @@ export default function LandingPage() {
               <div>
                 <SectionLabel>Early access</SectionLabel>
                 <h2 className="max-w-[16ch] text-[clamp(2rem,4vw,3.25rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                  We're onboarding 10 finance teams this quarter.
+                  We're onboarding design partners now.
                 </h2>
                 <p className="mt-5 max-w-[38rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
-                  Connect Stripe, set your policies, and see governed decisions on live revenue data
-                  within your first session.
+                  Connect Stripe, set your approval rules, and see Riley triage overdue revenue in your
+                  first session.
                 </p>
               </div>
 
