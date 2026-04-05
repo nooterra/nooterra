@@ -150,11 +150,12 @@ function DecisionDossierMockup() {
 
   return (
     <aside
-      className="w-full border"
+      className="w-full border select-none"
       style={{
         background: PALETTE.panel,
         borderColor: PALETTE.lineStrong,
         boxShadow: '0 22px 50px rgba(23,20,17,0.10)',
+        cursor: 'default',
       }}
     >
       {/* Header */}
@@ -337,22 +338,44 @@ export default function LandingPage() {
     >
       <style>{`
         @media (prefers-reduced-motion: no-preference) {
-          html {
-            scroll-behavior: smooth;
-          }
+          html { scroll-behavior: smooth; }
+        }
+        .nav-link {
+          position: relative;
+          padding-bottom: 2px;
+        }
+        .nav-link::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          bottom: -2px;
+          width: 0;
+          height: 1px;
+          background: ${PALETTE.ink};
+          transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .nav-link:hover::after {
+          width: 100%;
+        }
+        .btn-primary {
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .btn-primary:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(23, 20, 17, 0.2);
+        }
+        .btn-primary:active {
+          transform: translateY(0);
+          box-shadow: none;
+        }
+        .btn-secondary {
+          transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .btn-secondary:hover {
+          background: ${PALETTE.paperAlt};
+          border-color: ${PALETTE.ink};
         }
       `}</style>
-
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed inset-0 opacity-60"
-        style={{
-          backgroundImage: `linear-gradient(to right, ${PALETTE.line} 1px, transparent 1px), linear-gradient(to bottom, ${PALETTE.line} 1px, transparent 1px)`,
-          backgroundSize: 'min(11vw, 120px) 100%, 100% 158px',
-          maskImage: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 92%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 92%)',
-        }}
-      />
 
       {/* ── Nav ── */}
       <nav
@@ -368,13 +391,13 @@ export default function LandingPage() {
           </a>
 
           <div className="hidden items-center gap-8 md:flex">
-            <a href="#how-it-works" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+            <a href="#how-it-works" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
               How it works
             </a>
-            <a href="#why-nooterra" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+            <a href="#why-nooterra" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
               Why Nooterra
             </a>
-            <a href="/docs" className="text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+            <a href="/docs" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
               Docs
             </a>
           </div>
@@ -385,8 +408,8 @@ export default function LandingPage() {
             </a>
             <a
               href="/setup"
-              className="inline-flex items-center justify-center border px-4 py-2 text-[11px] uppercase tracking-[0.18em] no-underline transition-colors"
-              style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+              className="btn-primary inline-flex items-center justify-center border px-4 py-2 text-[11px] uppercase tracking-[0.18em] no-underline"
+              style={{ borderColor: PALETTE.ink, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
             >
               Request access
             </a>
@@ -402,31 +425,31 @@ export default function LandingPage() {
             <div className="mx-auto max-w-[52rem] text-center">
               <motion.h1
                 {...loadProps(reducedMotion, 0.06)}
-                className="mx-auto max-w-[18ch] text-[clamp(2.8rem,6.5vw,5.2rem)] font-medium leading-[0.93] tracking-[-0.04em]"
+                className="mx-auto text-[clamp(3rem,7.5vw,5.8rem)] font-semibold leading-[0.9] tracking-[-0.045em]"
               >
-                Your overdue invoices deserve a specialist
+                Stop losing revenue to invoices nobody follows up on
               </motion.h1>
 
               <motion.p
                 {...loadProps(reducedMotion, 0.14)}
-                className="mx-auto mt-7 max-w-[34rem] text-lg leading-8"
+                className="mx-auto mt-8 max-w-[36rem] text-[1.15rem] leading-[1.75]"
                 style={{ color: PALETTE.steel }}
               >
-                Nooterra connects to Stripe, reads your payment history, and decides which overdue accounts need a follow-up, which need an escalation, and which should wait.
+                Nooterra is an AI collections specialist. It connects to Stripe, reads every payment pattern, and tells you exactly which accounts need attention — with the evidence to back it up.
               </motion.p>
 
               <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <a
                   href="/setup"
-                  className="inline-flex items-center justify-center gap-2 border px-6 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+                  className="btn-primary inline-flex items-center justify-center gap-2 border px-7 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
+                  style={{ borderColor: PALETTE.ink, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
                 >
                   Get started
-                  <ArrowRight size={14} />
+                  <ArrowRight size={15} />
                 </a>
                 <a
                   href="#how-it-works"
-                  className="inline-flex items-center justify-center border px-6 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  className="btn-secondary inline-flex items-center justify-center border px-7 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
                   style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
                 >
                   See how it works
@@ -476,7 +499,7 @@ export default function LandingPage() {
           <div className="mx-auto grid max-w-[78rem] gap-10 lg:grid-cols-[0.95fr_1.4fr]">
             <motion.div {...revealProps(reducedMotion, 0.04)}>
               <SectionLabel>How it works</SectionLabel>
-              <h2 className="max-w-[16ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
+              <h2 className="max-w-[22ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
                 Four steps from Stripe to first recommendation.
               </h2>
               <p className="mt-5 max-w-[34rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
@@ -609,15 +632,15 @@ export default function LandingPage() {
               <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
                 <a
                   href="/setup"
-                  className="inline-flex items-center justify-center gap-2 border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+                  className="btn-primary inline-flex items-center justify-center gap-2 border px-6 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
+                  style={{ borderColor: PALETTE.ink, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
                 >
                   Request access
-                  <ArrowRight size={14} />
+                  <ArrowRight size={15} />
                 </a>
                 <a
                   href="/docs"
-                  className="inline-flex items-center justify-center border px-5 py-3 text-[11px] uppercase tracking-[0.18em] no-underline"
+                  className="btn-secondary inline-flex items-center justify-center border px-6 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
                   style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
                 >
                   Read the docs
