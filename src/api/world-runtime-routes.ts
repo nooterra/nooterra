@@ -2480,6 +2480,37 @@ export async function handleWorldRuntimeRoute(
     return true;
   }
 
+  // GET /v1/employees/active
+  if (req.method === 'GET' && pathname === '/v1/employees/active') {
+    const auth = await requireAuthenticatedWorldReadContext(req);
+    if (!auth.ok) return error(res, auth.message, auth.status), true;
+
+    const result = await pool.query(
+      `SELECT id, name, charter, status FROM workers
+       WHERE tenant_id = $1
+         AND status != 'archived'
+         AND (charter->>'roleId' = 'ar-collections' OR charter->>'worldRuntimeTemplateId' = 'ar-collections-v1')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [auth.tenantId],
+    );
+
+    if (!result.rows[0]) {
+      return json(res, { employee: null }), true;
+    }
+
+    const worker = result.rows[0];
+    json(res, {
+      employee: {
+        id: worker.id,
+        name: worker.name,
+        roleId: worker.charter?.roleId || 'ar-collections',
+        status: worker.status,
+      },
+    });
+    return true;
+  }
+
   if (req.method === 'GET' && pathname.startsWith('/v1/employees/') && pathname.endsWith('/summary')) {
     if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
 
