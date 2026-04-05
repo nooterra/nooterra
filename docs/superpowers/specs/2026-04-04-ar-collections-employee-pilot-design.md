@@ -103,6 +103,7 @@ Each is hours of work, not days:
 | Backfill: disputes | `services/runtime/router.ts` | Extend existing backfill to ingest disputes through `connector.ts` path |
 | Backfill in execution path | `services/runtime/execution-loop.ts` | Invoke backfill at start of collections worker run so cron refreshes Stripe data before planning |
 | Grant constraint overrides | `src/agents/templates/ar-collections.ts` | Accept boundary params (max amount, contact frequency) when building grant |
+| Parameterize high-value threshold | `src/core/objectives.ts` | Make `isHighValueCommunication()` threshold configurable from tenant objectives instead of hardcoded $5K |
 
 ### 1.5 Stripe Ingest Strategy
 
@@ -112,7 +113,7 @@ Each is hours of work, not days:
 
 **Deferred:** Connected-account Stripe webhook pipeline for real-time ingest. Phase 2 when sub-hour latency matters.
 
-**Backfill coverage (pilot):** Customers, invoices, payment intents, disputes. Refunds and subscriptions deferred — noted as gap.
+**Backfill coverage (pilot):** Customers, invoices, payment intents as objects + relationships. Disputes as events only (the Stripe connector emits dispute events but does not create dispute objects or relationships — dispute awareness comes from event queries, not object graph traversal). Refunds and subscriptions deferred.
 
 ### 1.6 Execution Path
 
@@ -167,7 +168,7 @@ Design target: Stripe/Ramp tier. Clean, minimal, product-led.
 - Require approval for accounts over $X ARR
 - Business hours only (toggle + timezone)
 
-The first two map to existing `GrantScope` and `GrantConstraints` fields. "Accounts over $X ARR" maps to the `high_value_escalates_to_approval` constraint threshold. "Business hours only" maps to the `outside_business_hours_requires_approval` constraint. These are set at grant creation time. Changes after onboarding use revoke-and-recreate (no in-place grant update exists).
+The first two map to existing `GrantScope` and `GrantConstraints` fields. "Invoices over $X" maps to the `high_value_escalates_to_approval` constraint, which currently uses a hardcoded $5,000 threshold in `isHighValueCommunication()` in `src/core/objectives.ts`. To make this configurable, the threshold must be parameterized (read from tenant objectives config instead of hardcoded). This requires a small change to `src/core/objectives.ts`. "Business hours only" maps to the `outside_business_hours_requires_approval` constraint. All are set at grant/objectives creation time. Changes after onboarding use revoke-and-recreate (no in-place grant update exists).
 
 **Step 3 — Build Context.** Triggers backfill. Shows progress — real object/event counts if the count endpoint supports it, otherwise phase labels: "Connecting → Scanning → Building → Ready." No fake counters. Lands on: "Riley has identified N accounts requiring attention. Ready to start?"
 
@@ -204,9 +205,9 @@ Sections:
 - **Payment behavior** — Timeline of invoices and payments. Visual indicator of payment patterns. Data from `world_objects` (invoices, payments) + `world_events`.
 - **Riley's activity** — What the employee has done: emails sent, escalations created, notes logged. From `world_events` filtered by agent ID + object refs.
 - **Open items** — Current overdue invoices, pending actions, scheduled follow-ups
-- **Relationships** — Connected entities: invoices, payments, disputes
+- **Relationships** — Connected entities: invoices, payments
 
-No subscription data unless backfill is extended to cover it. No support ticket data. Stripe-only.
+No subscription or refund data unless backfill is extended. No support ticket data. Stripe-only. Disputes are visible as events (e.g., "dispute opened on charge X") but not as first-class objects in the graph.
 
 ### 2.7 Screen 6: Settings (`/employees/:id/settings`)
 
@@ -216,14 +217,14 @@ Policy boundaries as human-readable controls.
 - **Boundaries** — 4 controls matching onboarding sliders:
   - Maximum autonomous action value ($)
   - Contact frequency limit (per account per week)
-  - Require approval for accounts over $X ARR
+  - Require approval for invoices over $X
   - Business hours only (toggle + timezone)
 - **Stripe connection** — Status, last sync, resync trigger
 - **Danger zone** — Pause employee
 
 There is no grant update path in the current codebase — only create and revoke. Changing a boundary revokes the current grant and creates a new one with updated constraints. This is simple and correct for the pilot. A proper in-place grant update is deferred.
 
-Note: "Require approval for accounts over $X ARR" does not map to an existing grant field. For the pilot, this is implemented as a threshold parameter on the `high_value_escalates_to_approval` constraint in `objectives.ts`, not as a grant scope filter. The Settings UI presents it as a slider, but the backend maps it to the constraint system.
+Note: "Require approval for invoices over $X" maps to the `high_value_escalates_to_approval` constraint, not a grant scope filter. The current threshold is hardcoded at $5,000 in `isHighValueCommunication()` in `src/core/objectives.ts`. Making this configurable requires parameterizing the threshold (read from tenant objectives config). The Settings UI presents it as a slider; the backend stores the value in tenant objectives and reads it during constraint evaluation.
 
 ### 2.8 Shell / Navigation
 
@@ -261,13 +262,14 @@ dashboard/src/lib/employee-api.js
 | `src/ledger/event-store.ts` | Add `sourceId` filter to `queryEvents()` |
 | `src/gateway/gateway.ts` | Add rejection ledger event |
 | `src/agents/templates/ar-collections.ts` | Accept boundary params for grant |
-| `services/runtime/router.ts` | Extend backfill to disputes |
+| `src/core/objectives.ts` | Parameterize high-value threshold from tenant config |
+| `services/runtime/router.ts` | Extend backfill to disputes (event-only) |
 | `services/runtime/execution-loop.ts` | Invoke backfill at start of collections worker execution |
 | `dashboard/src/App.jsx` | Add employee routes, post-auth redirect |
 | `dashboard/src/site/LandingPage.jsx` | Copy rewrite |
 | `dashboard/src/lib/world-api.js` | Additional query helpers |
 
-**Untouched:** Everything else. All 81 migrations, all 3 services, the gateway pipeline, planner, scanner, authority graph, autonomy enforcer, effect tracker, world model ensemble, state estimator, connector interface, object graph.
+**Untouched:** All 81 migrations, the magic-link and ml-sidecar services, the gateway pipeline (except rejection event addition), planner, scanner, authority graph, autonomy enforcer, effect tracker, world model ensemble, state estimator, connector interface, object graph. The runtime service has two modified files (`router.ts`, `execution-loop.ts`) as listed above.
 
 ---
 
@@ -279,9 +281,15 @@ dashboard/src/lib/employee-api.js
 Connect Stripe (API key → encrypted credential storage in router.ts)
   → Trigger backfill (router.ts → Stripe API → connector.ts → applyConnectorResult())
   → World model populates:
-    → world_objects: parties (customers), invoices, payments, disputes
-    → world_relationships: customer_of, pays, about
+    → world_objects: parties (customers), invoices, payments
+    → world_relationships: customer_of, pays
     → world_events: observation events, hash-chained per tenant
+    → Disputes: event-only awareness (no dispute objects or relationships).
+      The current Stripe connector (`src/observation/connectors/stripe.ts`)
+      emits dispute events but does not create dispute objects.
+      The planner and gateway can detect disputes via event queries
+      (e.g., no_active_dispute_outreach constraint checks for dispute events).
+      Full dispute object materialization is deferred.
   → Frontend shows progress (object counts or phase labels)
   → POST /v1/employees → provision worker + charter + grant + cron schedule
   → Employee is active
@@ -432,9 +440,9 @@ Back to dashboard.
 
 | Category | New | Modified | Untouched |
 |---|---|---|---|
-| src/ files | 1 | 4 | ~40+ |
+| src/ files | 1 | 5 | ~40+ |
 | services/ files | 0 | 2 | ~30+ |
 | dashboard/ files | 11 | 3 | ~20+ |
 | DB migrations | 0 | 0 | 81 |
 
-Totals: 12 new files, 9 modified files. Everything else untouched.
+Totals: 12 new files, 10 modified files. Everything else untouched.
