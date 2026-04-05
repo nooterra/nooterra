@@ -702,6 +702,33 @@ export async function releaseEscrow(
         actionStatus: 'denied',
         decision: 'deny',
       }).catch(() => {});
+      // Append rejection as learning signal to world event ledger
+      try {
+        await appendEvent(pool, {
+          tenantId,
+          type: 'manager.action.rejected',
+          timestamp: new Date(),
+          sourceType: 'human',
+          sourceId: decidedBy,
+          objectRefs: action.target_object_id
+            ? [{ objectId: action.target_object_id, objectType: action.target_object_type || 'unknown', role: 'target' }]
+            : [],
+          payload: {
+            actionId,
+            actionClass: action.action_class,
+            agentId: action.agent_id,
+            decidedBy,
+            tool: action.tool,
+          },
+          provenance: {
+            sourceSystem: 'gateway',
+            sourceId: actionId,
+            extractionMethod: 'api',
+            extractionConfidence: 1.0,
+          },
+          traceId: action.trace_id || actionId,
+        });
+      } catch { /* best effort — don't fail the rejection if event append fails */ }
       return {
         actionId,
         status: 'denied',
