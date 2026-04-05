@@ -451,6 +451,72 @@ export default function LandingPage() {
         @media (prefers-reduced-motion: no-preference) {
           html { scroll-behavior: smooth; }
         }
+
+        /* ── Animated mesh gradient ── */
+        @property --mesh-x {
+          syntax: '<percentage>';
+          inherits: false;
+          initial-value: 30%;
+        }
+        @property --mesh-y {
+          syntax: '<percentage>';
+          inherits: false;
+          initial-value: 40%;
+        }
+        @property --mesh2-x {
+          syntax: '<percentage>';
+          inherits: false;
+          initial-value: 70%;
+        }
+        @property --mesh2-y {
+          syntax: '<percentage>';
+          inherits: false;
+          initial-value: 60%;
+        }
+        .hero-mesh {
+          --mesh-x: 30%;
+          --mesh-y: 40%;
+          --mesh2-x: 70%;
+          --mesh2-y: 60%;
+          background:
+            radial-gradient(ellipse 55% 50% at var(--mesh-x) var(--mesh-y), rgba(10,110,92,0.09) 0%, transparent 70%),
+            radial-gradient(ellipse 45% 40% at var(--mesh2-x) var(--mesh2-y), rgba(50,50,93,0.07) 0%, transparent 65%),
+            radial-gradient(ellipse 70% 60% at 50% 100%, rgba(10,110,92,0.04) 0%, transparent 50%),
+            linear-gradient(180deg, #eef2f7 0%, #f6f9fc 30%, #ffffff 70%);
+        }
+        @media (prefers-reduced-motion: no-preference) {
+          .hero-mesh {
+            animation: meshDrift 20s ease-in-out infinite alternate;
+          }
+        }
+        @keyframes meshDrift {
+          0% {
+            --mesh-x: 30%;
+            --mesh-y: 40%;
+            --mesh2-x: 70%;
+            --mesh2-y: 60%;
+          }
+          33% {
+            --mesh-x: 45%;
+            --mesh-y: 30%;
+            --mesh2-x: 55%;
+            --mesh2-y: 70%;
+          }
+          66% {
+            --mesh-x: 25%;
+            --mesh-y: 55%;
+            --mesh2-x: 75%;
+            --mesh2-y: 45%;
+          }
+          100% {
+            --mesh-x: 40%;
+            --mesh-y: 35%;
+            --mesh2-x: 60%;
+            --mesh2-y: 65%;
+          }
+        }
+
+        /* ── Nav interactions ── */
         .nav-link {
           position: relative;
           padding-bottom: 2px;
@@ -468,21 +534,41 @@ export default function LandingPage() {
         .nav-link:hover::after {
           width: 100%;
         }
+
+        /* ── Button interactions ── */
         .btn-primary {
-          transition: background 0.2s ease, box-shadow 0.2s ease;
+          transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
         }
         .btn-primary:hover {
           background: ${PALETTE.accentHover} !important;
+          transform: translateY(-1px);
+          box-shadow: rgba(50,50,93,0.25) 0px 6px 12px -2px, rgba(0,0,0,0.1) 0px 3px 7px -3px !important;
         }
         .btn-primary:active {
           background: ${PALETTE.accentHover} !important;
+          transform: translateY(0);
           box-shadow: none !important;
         }
         .btn-ghost {
-          transition: background 0.2s ease;
+          transition: background 0.2s ease, color 0.2s ease;
         }
         .btn-ghost:hover {
           background: ${PALETTE.bgSubtle};
+          color: ${PALETTE.ink};
+        }
+
+        /* ── Dossier glow ── */
+        .dossier-glow {
+          position: relative;
+        }
+        .dossier-glow::before {
+          content: '';
+          position: absolute;
+          inset: -20px;
+          z-index: -1;
+          border-radius: 16px;
+          background: radial-gradient(ellipse at 50% 30%, rgba(10,110,92,0.12) 0%, transparent 60%);
+          filter: blur(30px);
         }
       `}</style>
 
@@ -553,11 +639,8 @@ export default function LandingPage() {
       <main>
         {/* ── Hero ── */}
         <section
-          className="scroll-mt-24"
-          style={{
-            borderBottom: `1px solid ${PALETTE.border}`,
-            background: 'linear-gradient(180deg, #f0f4f8 0%, #ffffff 50%)',
-          }}
+          className="hero-mesh scroll-mt-24"
+          style={{ borderBottom: `1px solid ${PALETTE.border}` }}
         >
           <div className="mx-auto grid max-w-[78rem] lg:grid-cols-[1.15fr_1fr]">
             {/* Left: headline + CTA */}
@@ -640,25 +723,21 @@ export default function LandingPage() {
             </div>
 
             {/* Right: product visual */}
-            <div
-              className="relative flex items-center justify-center overflow-hidden px-6 py-10 lg:px-10 lg:py-14"
-              style={{
-                background: `
-                  radial-gradient(ellipse 80% 70% at 60% 40%, rgba(10,110,92,0.06) 0%, transparent 70%),
-                  radial-gradient(ellipse 60% 50% at 30% 80%, rgba(50,50,93,0.04) 0%, transparent 60%),
-                  ${PALETTE.bgSubtle}
-                `,
-              }}
-            >
-              <div
-                className="w-full max-w-[32rem]"
+            <div className="relative flex items-center justify-center overflow-hidden px-6 py-10 lg:px-10 lg:py-14">
+              <motion.div
+                className="dossier-glow w-full max-w-[32rem]"
+                {...(reducedMotion ? {} : {
+                  initial: { opacity: 0, y: 20, rotateY: 0, rotateX: 0 },
+                  animate: { opacity: 1, y: 0, rotateY: -4, rotateX: 2 },
+                  transition: { duration: 0.8, delay: 0.3, ease: [0.16, 1, 0.3, 1] },
+                })}
                 style={{
-                  transform: 'perspective(1200px) rotateY(-4deg) rotateX(2deg)',
+                  perspective: '1200px',
                   transformStyle: 'preserve-3d',
                 }}
               >
                 <DecisionDossierMockup />
-              </div>
+              </motion.div>
             </div>
           </div>
         </section>
