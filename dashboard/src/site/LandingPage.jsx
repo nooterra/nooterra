@@ -552,7 +552,13 @@ export default function LandingPage() {
 
       <main>
         {/* ── Hero ── */}
-        <section className="scroll-mt-24" style={{ borderBottom: `1px solid ${PALETTE.border}` }}>
+        <section
+          className="scroll-mt-24"
+          style={{
+            borderBottom: `1px solid ${PALETTE.border}`,
+            background: 'linear-gradient(180deg, #f0f4f8 0%, #ffffff 50%)',
+          }}
+        >
           <div className="mx-auto grid max-w-[78rem] lg:grid-cols-[1.15fr_1fr]">
             {/* Left: headline + CTA */}
             <div className="flex flex-col justify-center px-4 py-14 sm:px-6 lg:px-10 lg:py-24">
@@ -635,8 +641,14 @@ export default function LandingPage() {
 
             {/* Right: product visual */}
             <div
-              className="flex items-center justify-center overflow-hidden px-6 py-10 lg:px-10 lg:py-14"
-              style={{ background: PALETTE.bgSubtle }}
+              className="relative flex items-center justify-center overflow-hidden px-6 py-10 lg:px-10 lg:py-14"
+              style={{
+                background: `
+                  radial-gradient(ellipse 80% 70% at 60% 40%, rgba(10,110,92,0.06) 0%, transparent 70%),
+                  radial-gradient(ellipse 60% 50% at 30% 80%, rgba(50,50,93,0.04) 0%, transparent 60%),
+                  ${PALETTE.bgSubtle}
+                `,
+              }}
             >
               <div
                 className="w-full max-w-[32rem]"
