@@ -1,81 +1,103 @@
 import { motion, useReducedMotion } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Zap, Shield, Activity } from 'lucide-react';
 
+/* ── Design tokens ── */
 const PALETTE = {
-  paper: '#F4F0E8',
-  paperAlt: '#ECE4D7',
-  panel: '#FAF7F1',
-  line: 'rgba(23,20,17,0.14)',
-  lineStrong: 'rgba(23,20,17,0.26)',
-  ink: '#171411',
-  steel: '#655E56',
-  steelSoft: '#8B8379',
-  teal: '#255C59',
-  tealSoft: 'rgba(37,92,89,0.12)',
-  amber: '#B66A17',
+  bg: '#ffffff',
+  surface: '#f8f9ff',
+  surfaceLow: '#eff4ff',
+  surfaceHigh: '#edf2f7',
+  ink: '#0d1c2e',
+  body: '#515f74',
+  muted: '#94a3b8',
+  accent: '#DDF047',
+  accentDark: '#5a6400',
+  border: '#e2e8f0',
+  dark: '#0d1c2e',
+  darkSurface: 'rgba(255,255,255,0.05)',
 };
 
 const FONTS = {
-  sans: "'Satoshi', 'Geist', system-ui, sans-serif",
+  sans: "'Inter', system-ui, sans-serif",
   mono: "'Geist Mono', 'SF Mono', monospace",
-  serif: "'Instrument Serif', Georgia, serif",
 };
 
 const EASE = [0.16, 1, 0.3, 1];
 
-const PROOF_POINTS = [
-  { label: 'Setup', value: 'Connect Stripe in 60 seconds' },
-  { label: 'Every action', value: 'Evidence trail + your approval' },
-  { label: 'Day one', value: 'Starts in review mode, earns autonomy' },
+/* ── Content data ── */
+const CAPABILITIES = [
+  {
+    ref: 'REF // 01A',
+    title: 'Instant\nIntegration',
+    body: 'Connect Stripe in 60 seconds. Nooterra reads your customers, invoices, payments, and disputes. Full picture in minutes.',
+    Icon: Zap,
+  },
+  {
+    ref: 'REF // 02B',
+    title: 'Immutable\nProof',
+    body: 'Every action comes with an evidence trail. No outreach is sent without your explicit approval and a full audit log.',
+    Icon: Shield,
+  },
+  {
+    ref: 'REF // 03C',
+    title: 'Autonomous\nScale',
+    body: 'Nooterra learns your institutional tone. Once trust is earned, the system scales recovery at machine speed.',
+    Icon: Activity,
+  },
 ];
 
 const HOW_STEPS = [
   {
-    step: '01',
+    step: 'ST-01',
     title: 'Connect Stripe',
     body: 'One API key. Nooterra reads your customers, invoices, payments, and disputes. Full picture in minutes.',
   },
   {
-    step: '02',
-    title: 'Set the rules',
+    step: 'ST-02',
+    title: 'Set the Rules',
     body: 'Dollar thresholds, contact limits, business hours. You define the boundaries. The system enforces them on every action.',
   },
   {
-    step: '03',
-    title: 'Review with evidence',
+    step: 'ST-03',
+    title: 'Review with Evidence',
     body: 'Each recommendation comes with the payment history, dispute status, and reasoning behind it. Approve or reject in one click.',
   },
   {
-    step: '04',
-    title: 'Earn autonomy',
+    step: 'ST-04',
+    title: 'Earn Autonomy',
     body: 'As outcomes improve, more actions move out of the review lane. You stay in control of what that threshold is.',
   },
 ];
 
-const STRIPE_HANDLES = [
-  'Retries the payment method on file',
-  'Sends the same dunning email to every customer',
-  'Gives you a list of overdue invoices',
+const COMPARISON_POINTS = [
+  {
+    title: 'Beyond Standard Automation',
+    body: 'Stripe sends generic reminders. Nooterra reads the full payment history before deciding what to do — different follow-ups for different customers based on their pattern.',
+  },
+  {
+    title: 'Dispute Awareness Protocol',
+    body: 'Active disputes trigger an immediate outreach freeze. Nooterra holds all contact when there\'s an active dispute, preventing reputational friction while escalating high-risk signals.',
+  },
 ];
 
-const NOOTERRA_ADDS = [
-  'Reads the full payment history before deciding what to do',
-  'Sends different follow-ups to different customers based on their pattern',
-  'Holds outreach when there\'s an active dispute',
-  'Escalates to your team when the situation is ambiguous',
+const COMPARISON_TABLE = [
+  { vector: 'Reminders', legacy: 'Static', nooterra: 'Context-Aware' },
+  { vector: 'History', legacy: 'Surface', nooterra: 'Full Deep-Context' },
+  { vector: 'Dispute Hold', legacy: 'Manual', nooterra: 'Real-Time' },
+  { vector: 'Autonomy', legacy: 'Zero', nooterra: 'Earned Trust' },
 ];
 
 const TRUST_POINTS = [
   {
-    title: 'Nothing happens without you',
+    title: 'Nothing Happens Without You',
     body: 'Every follow-up is proposed, not sent. You approve each action until the system earns enough track record to act on its own.',
   },
   {
-    title: 'Your rules, not ours',
+    title: 'Your Rules, Not Ours',
     body: 'You set the dollar limits, contact frequency, and escalation triggers. The system enforces them — it cannot override your policies.',
   },
   {
-    title: 'Every decision is recorded',
+    title: 'Every Decision is Recorded',
     body: 'What was recommended, what evidence supported it, what you decided, and what happened after. Exportable. Audit-ready.',
   },
 ];
@@ -92,51 +114,46 @@ const DOSSIER_AUDIT = [
   '11:43 UTC  Flagged for approval — invoice exceeds $5,000',
 ];
 
-function NooterraLogo({ size = 26 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="3" stroke={PALETTE.ink} strokeWidth="1.5" />
-      <circle cx="9.5" cy="10" r="2" fill={PALETTE.ink} />
-      <circle cx="22.5" cy="10" r="2" fill={PALETTE.ink} />
-      <circle cx="16" cy="22" r="2" fill={PALETTE.teal} />
-      <path d="M9.5 12L16 20M22.5 12L16 20M11.5 10H20.5" stroke={PALETTE.ink} strokeWidth="1.35" />
-    </svg>
-  );
-}
-
+/* ── Animation helpers ── */
 function revealProps(reducedMotion, delay = 0) {
   if (reducedMotion) return {};
   return {
-    initial: { opacity: 0, y: 6 },
+    initial: { opacity: 0, y: 14 },
     whileInView: { opacity: 1, y: 0 },
-    transition: { duration: 0.22, delay, ease: EASE },
-    viewport: { once: true, margin: '-48px' },
+    transition: { duration: 0.5, delay, ease: EASE },
+    viewport: { once: true, margin: '-60px' },
   };
 }
 
 function loadProps(reducedMotion, delay = 0) {
   if (reducedMotion) return {};
   return {
-    initial: { opacity: 0, y: 6 },
+    initial: { opacity: 0, y: 14 },
     animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.22, delay, ease: EASE },
+    transition: { duration: 0.5, delay, ease: EASE },
   };
 }
 
-function SectionLabel({ children }) {
+/* ── Micro-label ── */
+function MicroLabel({ children, style: extraStyle }) {
   return (
     <div
-      className="mb-5 text-[11px] uppercase tracking-[0.28em]"
-      style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}
+      style={{
+        fontFamily: FONTS.mono,
+        fontSize: 10,
+        letterSpacing: '0.3em',
+        textTransform: 'uppercase',
+        color: PALETTE.muted,
+        ...extraStyle,
+      }}
     >
       {children}
     </div>
   );
 }
 
-function DecisionDossierMockup() {
-  const reducedMotion = useReducedMotion();
-
+/* ── Decision Dossier mockup (hero right) ── */
+function DecisionDossierMockup({ reducedMotion }) {
   const dossierReveal = (delay) => {
     if (reducedMotion) return {};
     return {
@@ -147,176 +164,182 @@ function DecisionDossierMockup() {
     };
   };
 
+  const cellStyle = {
+    fontFamily: FONTS.mono,
+    fontSize: 10,
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)',
+  };
+
   return (
-    <aside
-      className="w-full max-w-[30rem] select-none cursor-default"
+    <div
       style={{
-        transform: 'perspective(1200px) rotateY(-3deg) rotateX(1.5deg)',
+        background: PALETTE.dark,
+        borderLeft: `4px solid ${PALETTE.accent}`,
+        boxShadow: '0 24px 80px rgba(0,0,0,0.4)',
+        width: '100%',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
-      <div
-        className="border"
+      {/* Corner marker */}
+      <div style={{ position: 'absolute', top: 16, right: 16, ...cellStyle, color: 'rgba(255,255,255,0.15)' }}>
+        LIVE_DOSSIER_FEED
+      </div>
+
+      {/* Header */}
+      <motion.div
+        {...dossierReveal(0)}
         style={{
-          background: PALETTE.panel,
-          borderColor: PALETTE.lineStrong,
-          boxShadow: '0 24px 60px rgba(23,20,17,0.12), 0 8px 20px rgba(23,20,17,0.06)',
+          padding: '20px 28px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
         }}
       >
-        {/* Header */}
-        <motion.div
-          {...dossierReveal(0)}
-          className="flex items-center justify-between gap-4 border-b px-4 py-3 text-[11px] uppercase tracking-[0.18em] sm:px-5"
-          style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}
-        >
-          <span>INV-8842 / Overdue Review</span>
-          <span className="inline-flex items-center gap-2" style={{ color: PALETTE.amber }}>
-            <span className="h-2 w-2 rounded-full" style={{ background: PALETTE.amber }} />
-            Awaiting approval
-          </span>
-        </motion.div>
+        <span style={{ ...cellStyle }}>INV-8842 / Overdue Review</span>
+        <span style={{ ...cellStyle, color: PALETTE.accent, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 6, height: 6, background: PALETTE.accent, display: 'inline-block' }} />
+          Awaiting Approval
+        </span>
+      </motion.div>
 
-        {/* Customer info */}
-        <motion.div {...dossierReveal(0.15)} className="border-b px-4 py-4 sm:px-5" style={{ borderColor: PALETTE.line }}>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="mb-1 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                Customer
-              </div>
-              <div className="text-[1.5rem] font-medium leading-none sm:text-[1.8rem]">Acme Manufacturing</div>
-              <div className="mt-3 flex flex-wrap gap-3 text-sm" style={{ color: PALETTE.steel }}>
-                <span>$14,200 due</span>
-                <span>42 days overdue</span>
-                <span>Tier 1 account</span>
-              </div>
-            </div>
-            <div
-              className="min-w-[6rem] border px-3 py-2 text-right"
-              style={{ borderColor: PALETTE.line, background: PALETTE.paper }}
-            >
-              <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                Queue rank
-              </div>
-              <div className="mt-1 text-xl font-medium">03 / 48</div>
-            </div>
+      {/* Customer + amount */}
+      <motion.div {...dossierReveal(0.15)} style={{ padding: '24px 28px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ ...cellStyle, marginBottom: 8 }}>Customer</div>
+        <div style={{ fontSize: 28, fontWeight: 900, color: '#ffffff', letterSpacing: '-0.03em', fontFamily: FONTS.sans }}>
+          Acme Manufacturing
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', gap: 20, ...cellStyle, fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
+          <span>$14,200 due</span>
+          <span>42 days overdue</span>
+          <span>Tier 1</span>
+        </div>
+      </motion.div>
+
+      {/* Recovery + Action */}
+      <div className="noo-dossier-2col" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <motion.div {...dossierReveal(0.4)} style={{ padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ ...cellStyle, marginBottom: 12 }}>Recovery likelihood</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+            <span style={{ fontSize: 40, fontWeight: 900, color: '#ffffff', lineHeight: 1, fontFamily: FONTS.sans, letterSpacing: '-0.04em' }}>64%</span>
+            <span style={{ ...cellStyle, paddingBottom: 4 }}>High confidence</span>
+          </div>
+          {/* Mini bar chart */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 40, marginTop: 20 }}>
+            {[30, 45, 65, 100, 80, 50].map((h, i) => (
+              <motion.div
+                key={i}
+                initial={reducedMotion ? false : { scaleY: 0 }}
+                whileInView={{ scaleY: 1 }}
+                transition={{ duration: 0.4, delay: 0.5 + i * 0.06, ease: EASE }}
+                viewport={{ once: true }}
+                style={{
+                  flex: 1,
+                  height: `${h}%`,
+                  background: i === 3 ? PALETTE.accent : `rgba(255,255,255,${0.05 + i * 0.06})`,
+                  transformOrigin: 'bottom',
+                }}
+              />
+            ))}
           </div>
         </motion.div>
 
-        {/* Probability + action */}
-        <div className="grid border-b md:grid-cols-[1.25fr_0.95fr]" style={{ borderColor: PALETTE.line }}>
-          <motion.div {...dossierReveal(0.4)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
-            <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Recovery likelihood
+        <motion.div {...dossierReveal(0.55)} style={{ padding: '24px 28px' }}>
+          <div style={{ ...cellStyle, marginBottom: 12 }}>Recommended action</div>
+          <div style={{
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            padding: '12px 14px',
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: FONTS.sans,
+          }}>
+            Send formal follow-up email
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+              <span>Alternative</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.accent }}>Hold</span>
             </div>
-            <div className="mt-3 flex items-end gap-3">
-              <div className="text-[2.2rem] leading-none sm:text-[2.6rem]">64%</div>
-              <div className="pb-1 text-xs uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                High confidence
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+              <span>Expected outcome</span>
+              <span style={{ fontFamily: FONTS.mono, color: PALETTE.accent }}>Payment in 10d</span>
             </div>
-            <div className="mt-4">
-              <div className="relative h-2 border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.paperAlt }}>
-                <motion.div
-                  initial={reducedMotion ? false : { scaleX: 0 }}
-                  whileInView={{ scaleX: 1 }}
-                  transition={{ duration: 0.6, delay: 0.5, ease: EASE }}
-                  viewport={{ once: true }}
-                  className="absolute left-[24%] right-[18%] top-0 h-full origin-left"
-                  style={{ background: PALETTE.tealSoft, borderLeft: `1px solid ${PALETTE.teal}`, borderRight: `1px solid ${PALETTE.teal}` }}
-                />
-                <motion.div
-                  initial={reducedMotion ? false : { opacity: 0 }}
-                  whileInView={{ opacity: 1 }}
-                  transition={{ duration: 0.3, delay: 0.9, ease: EASE }}
-                  viewport={{ once: true }}
-                  className="absolute top-1/2 h-3 w-3 -translate-y-1/2 -translate-x-1/2 border"
-                  style={{ left: '64%', background: PALETTE.teal, borderColor: PALETTE.panel }}
-                />
-              </div>
-              <div className="mt-2 flex justify-between text-[10px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                <span>52%</span>
-                <span>71%</span>
-              </div>
-            </div>
-          </motion.div>
-
-          <motion.div {...dossierReveal(0.55)} className="px-4 py-4 sm:px-5">
-            <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Recommended action
-            </div>
-            <div className="mt-3 border px-3 py-3 text-sm font-medium" style={{ borderColor: PALETTE.lineStrong, background: '#191715', color: PALETTE.panel }}>
-              Send formal follow-up email
-            </div>
-            <div className="mt-4 grid gap-2 text-sm" style={{ color: PALETTE.steel }}>
-              <div className="flex items-center justify-between gap-4">
-                <span>Alternative considered</span>
-                <span style={{ fontFamily: FONTS.mono, color: PALETTE.amber }}>Hold</span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span>Expected next outcome</span>
-                <span style={{ fontFamily: FONTS.mono, color: PALETTE.teal }}>Payment within 10d</span>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Evidence + approval */}
-        <div className="grid md:grid-cols-[1.1fr_0.9fr]">
-          <motion.div {...dossierReveal(0.75)} className="border-b px-4 py-4 md:border-b-0 md:border-r sm:px-5" style={{ borderColor: PALETTE.line }}>
-            <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Evidence panel
-            </div>
-            <div className="mt-3 space-y-2 text-sm leading-relaxed" style={{ color: PALETTE.steel }}>
-              {DOSSIER_EVIDENCE.map((item, i) => (
-                <motion.div
-                  key={item}
-                  initial={reducedMotion ? false : { opacity: 0, x: -6 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.25, delay: 0.8 + i * 0.1, ease: EASE }}
-                  viewport={{ once: true }}
-                  className="border-l pl-3"
-                  style={{ borderColor: PALETTE.teal }}
-                >
-                  {item}
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div {...dossierReveal(0.9)} className="px-4 py-4 sm:px-5">
-            <div className="text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-              Approval
-            </div>
-            <div className="mt-3 border px-3 py-3" style={{ borderColor: PALETTE.line, background: PALETTE.paper }}>
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span>Your approval</span>
-                <span style={{ color: PALETTE.amber, fontFamily: FONTS.mono }}>Required</span>
-              </div>
-              <div className="mt-3 text-[11px] uppercase tracking-[0.16em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                Activity log
-              </div>
-              <div className="mt-2 space-y-2 text-xs leading-relaxed" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-                {DOSSIER_AUDIT.map((item) => (
-                  <div key={item}>{item}</div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </div>
+          </div>
+        </motion.div>
       </div>
-    </aside>
+
+      {/* Evidence + Audit */}
+      <div className="noo-dossier-2col" style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr' }}>
+        <motion.div {...dossierReveal(0.75)} style={{ padding: '24px 28px', borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ ...cellStyle, marginBottom: 12 }}>Evidence panel</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {DOSSIER_EVIDENCE.map((item, i) => (
+              <motion.div
+                key={item}
+                initial={reducedMotion ? false : { opacity: 0, x: -6 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25, delay: 0.8 + i * 0.1, ease: EASE }}
+                viewport={{ once: true }}
+                style={{
+                  paddingLeft: 12,
+                  borderLeft: `2px solid ${PALETTE.accent}`,
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  color: 'rgba(255,255,255,0.55)',
+                }}
+              >
+                {item}
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        <motion.div {...dossierReveal(0.9)} style={{ padding: '24px 28px' }}>
+          <div style={{ ...cellStyle, marginBottom: 12 }}>Activity log</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {DOSSIER_AUDIT.map((item) => (
+              <div key={item} style={{ fontFamily: FONTS.mono, fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>
+                {item}
+              </div>
+            ))}
+          </div>
+          <div style={{
+            marginTop: 16,
+            padding: '10px 14px',
+            border: `1px solid rgba(255,255,255,0.1)`,
+            background: 'rgba(255,255,255,0.03)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.5)',
+          }}>
+            <span>Your approval</span>
+            <span style={{ fontFamily: FONTS.mono, color: PALETTE.accent, fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase' }}>Required</span>
+          </div>
+        </motion.div>
+      </div>
+    </div>
   );
 }
 
+/* ── Main component ── */
 export default function LandingPage() {
   const reducedMotion = useReducedMotion();
 
   return (
     <div
-      className="min-h-screen"
       style={{
-        background: PALETTE.paper,
+        minHeight: '100vh',
+        background: PALETTE.bg,
         color: PALETTE.ink,
         fontFamily: FONTS.sans,
+        WebkitFontSmoothing: 'antialiased',
       }}
     >
       <style>{`
@@ -324,305 +347,898 @@ export default function LandingPage() {
           html { scroll-behavior: smooth; }
         }
 
-        .nav-link { position: relative; padding-bottom: 2px; }
-        .nav-link::after {
+        .noo-nav-link { position: relative; padding-bottom: 2px; text-decoration: none; }
+        .noo-nav-link::after {
           content: ''; position: absolute; left: 0; bottom: -2px;
           width: 0; height: 1px; background: currentColor;
           transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .nav-link:hover::after { width: 100%; }
+        .noo-nav-link:hover::after { width: 100%; }
 
-        .btn-primary { transition: opacity 0.15s ease, transform 0.15s ease; }
-        .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
-        .btn-primary:active { opacity: 1; transform: translateY(0); }
+        .noo-btn-primary { transition: transform 0.15s ease, box-shadow 0.15s ease; text-decoration: none; }
+        .noo-btn-primary:hover { transform: scale(1.03); box-shadow: 0 8px 30px rgba(221,240,71,0.25); }
+        .noo-btn-primary:active { transform: scale(1); }
 
-        .btn-ghost { transition: background 0.15s ease; }
-        .btn-ghost:hover { background: rgba(23,20,17,0.04); }
+        .noo-btn-outline { transition: background 0.15s ease, border-color 0.15s ease; text-decoration: none; }
+        .noo-btn-outline:hover { background: ${PALETTE.surface}; }
+
+        .noo-step-card { transition: border-color 0.25s ease; }
+        .noo-step-card:hover { border-color: ${PALETTE.accent} !important; }
+        .noo-step-card .noo-active-tag { opacity: 0; transition: opacity 0.25s ease; }
+        .noo-step-card:hover .noo-active-tag { opacity: 1; }
+
+        .noo-grid-bg {
+          background-image: linear-gradient(to right, ${PALETTE.border} 1px, transparent 1px),
+                            linear-gradient(to bottom, ${PALETTE.border} 1px, transparent 1px);
+          background-size: 80px 80px;
+        }
+
+        ::selection { background: rgba(221,240,71,0.25); color: ${PALETTE.ink}; }
+
+        /* Responsive overrides */
+        @media (max-width: 1024px) {
+          .noo-hero-flex { flex-direction: column !important; }
+          .noo-hero-flex > div { flex: 1 1 auto !important; }
+          .noo-cap-grid { grid-template-columns: 1fr !important; }
+          .noo-step-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .noo-compare-grid { grid-template-columns: 1fr !important; }
+          .noo-trust-grid { grid-template-columns: 1fr !important; }
+          .noo-cta-inner { flex-direction: column !important; }
+          .noo-footer-top { flex-direction: column !important; gap: 48px !important; }
+          .noo-footer-links { grid-template-columns: repeat(2, 1fr) !important; gap: 32px !important; }
+          .noo-flow-header { flex-direction: column !important; align-items: flex-start !important; }
+          .noo-dossier-2col { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 768px) {
+          .noo-step-grid { grid-template-columns: 1fr !important; }
+          .noo-nav-center { display: none !important; }
+          .noo-nav-signin { display: none !important; }
+          .noo-section-pad { padding-left: 20px !important; padding-right: 20px !important; }
+          .noo-nav-inner { padding-left: 20px !important; padding-right: 20px !important; }
+        }
       `}</style>
 
       {/* ── Nav ── */}
       <nav
-        className="sticky top-0 z-50 border-b"
-        style={{ borderColor: PALETTE.line, background: 'rgba(244, 240, 232, 0.9)', backdropFilter: 'blur(14px)' }}
+        style={{
+          position: 'fixed',
+          top: 0,
+          width: '100%',
+          zIndex: 50,
+          background: 'rgba(255,255,255,0.9)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: `1px solid ${PALETTE.border}`,
+        }}
       >
-        <div className="mx-auto flex max-w-[78rem] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <a href="/" className="inline-flex items-center gap-3 no-underline">
-            <NooterraLogo />
-            <span className="text-[1.05rem] font-semibold tracking-[-0.04em]" style={{ color: PALETTE.ink }}>
-              Nooterra
+        <div className="noo-nav-inner" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '20px 48px',
+          maxWidth: 1440,
+          margin: '0 auto',
+        }}>
+          {/* Left: logo + version */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <a
+              href="/"
+              style={{
+                fontFamily: FONTS.sans,
+                fontSize: 22,
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                color: PALETTE.ink,
+                textDecoration: 'none',
+              }}
+            >
+              NOOTERRA
+            </a>
+            <div style={{ width: 1, height: 16, background: PALETTE.border }} />
+            <span style={{ fontFamily: FONTS.mono, fontSize: 10, letterSpacing: '0.2em', color: PALETTE.body }}>
+              V1.0 // AR
             </span>
-          </a>
-
-          <div className="hidden items-center gap-8 md:flex">
-            <a href="#how-it-works" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-              How it works
-            </a>
-            <a href="#why-nooterra" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-              Why Nooterra
-            </a>
-            <a href="/docs" className="nav-link text-[11px] uppercase tracking-[0.2em] no-underline" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-              Docs
-            </a>
           </div>
 
-          <div className="flex items-center gap-3">
-            <a href="/login" className="nav-link hidden text-[11px] uppercase tracking-[0.2em] no-underline sm:block" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
+          {/* Center: nav links */}
+          <div className="noo-nav-center" style={{ display: 'flex', gap: 48, alignItems: 'center' }}>
+            {[
+              ['#how-it-works', 'How it works'],
+              ['#why-nooterra', 'Why Nooterra'],
+              ['/docs', 'Docs'],
+            ].map(([href, label]) => (
+              <a
+                key={label}
+                href={href}
+                className="noo-nav-link"
+                style={{
+                  fontFamily: FONTS.sans,
+                  fontWeight: 600,
+                  fontSize: 11,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.2em',
+                  color: PALETTE.body,
+                }}
+              >
+                {label}
+              </a>
+            ))}
+          </div>
+
+          {/* Right: sign in + CTA */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+            <a
+              href="/login"
+              className="noo-nav-link noo-nav-signin"
+              style={{
+                fontFamily: FONTS.sans,
+                fontWeight: 600,
+                fontSize: 11,
+                textTransform: 'uppercase',
+                letterSpacing: '0.2em',
+                color: PALETTE.body,
+              }}
+            >
               Sign in
             </a>
             <a
               href="/setup"
-              className="btn-primary inline-flex items-center justify-center border px-4 py-2 text-[14px] tracking-[-0.01em] no-underline"
-              style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.sans, fontWeight: 500 }}
+              className="noo-btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '14px 32px',
+                background: PALETTE.ink,
+                color: '#ffffff',
+                fontFamily: FONTS.sans,
+                fontWeight: 900,
+                fontSize: 11,
+                textTransform: 'uppercase',
+                letterSpacing: '0.2em',
+                border: 'none',
+              }}
             >
-              Get started
+              Get Started
             </a>
           </div>
         </div>
       </nav>
 
       <main>
-        {/* ── Section 1: Hero ── */}
-        <section className="scroll-mt-24">
-          <div className="grid lg:grid-cols-[1.1fr_1fr]">
-            {/* Left: copy — dark panel for contrast */}
-            <div
-              className="flex flex-col justify-center px-6 py-16 sm:px-10 lg:px-14 lg:py-24"
-              style={{ background: PALETTE.ink, color: '#F4F0E8' }}
-            >
-              <motion.h1
-                {...loadProps(reducedMotion, 0.06)}
-                className="text-[clamp(2.8rem,6vw,4.6rem)] leading-[1] tracking-[-0.035em]"
-                style={{ fontWeight: 700 }}
-              >
-                Stop chasing
-                <br />
-                overdue invoices.
-              </motion.h1>
+        {/* ── Hero ── */}
+        <section
+          className="noo-grid-bg noo-section-pad"
+          style={{
+            position: 'relative',
+            paddingTop: 200,
+            paddingBottom: 140,
+            paddingLeft: 48,
+            paddingRight: 48,
+            overflow: 'hidden',
+            borderBottom: `1px solid ${PALETTE.border}`,
+          }}
+        >
+          {/* Corner markers */}
+          <MicroLabel style={{ position: 'absolute', top: 16, left: 16 }}>COORD // 0.0.1</MicroLabel>
+          <MicroLabel style={{ position: 'absolute', bottom: 16, right: 16 }}>RECOVERY_ENGINE_INIT</MicroLabel>
 
-              <motion.p
-                {...loadProps(reducedMotion, 0.14)}
-                className="mt-6 max-w-[28rem] text-[1.05rem] leading-[1.7]"
-                style={{ color: 'rgba(244,240,232,0.65)' }}
-              >
-                Nooterra connects to Stripe, reads your payment history, and follows up on every overdue account — with evidence and your approval.
-              </motion.p>
+          <div style={{ maxWidth: 1440, margin: '0 auto', position: 'relative', zIndex: 10 }}>
+            <div className="noo-hero-flex" style={{ display: 'flex', gap: 80, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {/* Left: 3/5 */}
+              <div style={{ flex: '3 1 500px', minWidth: 0 }}>
+                {/* Accent label */}
+                <motion.div
+                  {...loadProps(reducedMotion, 0)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 48 }}
+                >
+                  <div style={{ width: 48, height: 1, background: PALETTE.accent }} />
+                  <span style={{
+                    fontFamily: FONTS.sans,
+                    fontSize: 11,
+                    fontWeight: 900,
+                    letterSpacing: '0.4em',
+                    textTransform: 'uppercase',
+                    color: PALETTE.accentDark,
+                  }}>
+                    AI Collections Specialist
+                  </span>
+                </motion.div>
 
-              <motion.div {...loadProps(reducedMotion, 0.22)} className="mt-10 flex items-center gap-5">
-                <a
-                  href="/setup"
-                  className="btn-primary inline-flex items-center justify-center gap-2 px-6 py-3.5 text-[15px] tracking-[-0.01em] no-underline"
-                  style={{ background: PALETTE.paper, color: PALETTE.ink, fontFamily: FONTS.sans, fontWeight: 600, borderRadius: '4px' }}
+                {/* Headline */}
+                <motion.h1
+                  {...loadProps(reducedMotion, 0.08)}
+                  style={{
+                    fontFamily: FONTS.sans,
+                    fontSize: 'clamp(56px, 10vw, 140px)',
+                    fontWeight: 900,
+                    letterSpacing: '-0.06em',
+                    lineHeight: 0.85,
+                    color: PALETTE.ink,
+                    marginBottom: 64,
+                    margin: 0,
+                  }}
                 >
-                  Get started
-                  <ArrowRight size={16} />
-                </a>
-                <a
-                  href="#how-it-works"
-                  className="nav-link text-[14px] no-underline"
-                  style={{ color: 'rgba(244,240,232,0.5)', fontWeight: 500 }}
+                  Debt is a{' '}
+                  <br />
+                  <span style={{ color: PALETTE.accentDark }}>data problem.</span>
+                </motion.h1>
+
+                {/* Subline */}
+                <motion.p
+                  {...loadProps(reducedMotion, 0.16)}
+                  style={{
+                    marginTop: 48,
+                    fontSize: 22,
+                    fontWeight: 300,
+                    lineHeight: 1.6,
+                    color: PALETTE.body,
+                    maxWidth: 640,
+                  }}
                 >
-                  Explore product &rarr;
-                </a>
+                  Nooterra transforms chaotic overdue invoices into a high-yield recovery engine. No emails. No collection calls.{' '}
+                  <span style={{ fontWeight: 700, color: PALETTE.ink }}>Just mathematical precision.</span>
+                </motion.p>
+
+                {/* CTAs */}
+                <motion.div {...loadProps(reducedMotion, 0.24)} style={{ marginTop: 56, display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+                  <a
+                    href="/setup"
+                    className="noo-btn-primary"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '22px 48px',
+                      background: PALETTE.accent,
+                      color: PALETTE.ink,
+                      fontFamily: FONTS.sans,
+                      fontWeight: 900,
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.3em',
+                      boxShadow: '0 12px 40px rgba(221,240,71,0.3)',
+                    }}
+                  >
+                    Get Started
+                    <ArrowRight size={16} />
+                  </a>
+                  <a
+                    href="#how-it-works"
+                    className="noo-btn-outline"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '22px 48px',
+                      border: `1px solid rgba(13,28,46,0.1)`,
+                      color: PALETTE.ink,
+                      fontFamily: FONTS.sans,
+                      fontWeight: 900,
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.3em',
+                    }}
+                  >
+                    How It Works
+                  </a>
+                </motion.div>
+              </div>
+
+              {/* Right: 2/5 — Decision dossier */}
+              <motion.div
+                {...loadProps(reducedMotion, 0.3)}
+                style={{ flex: '2 1 400px', minWidth: 0 }}
+              >
+                <DecisionDossierMockup reducedMotion={reducedMotion} />
               </motion.div>
             </div>
-
-            {/* Right: dossier */}
-            <div
-              className="flex items-center justify-center overflow-hidden px-6 py-10 sm:px-8 lg:px-10 lg:py-16"
-              style={{ background: PALETTE.paperAlt }}
-            >
-              <DecisionDossierMockup />
-            </div>
           </div>
+        </section>
 
-          {/* Proof points */}
-          <div className="mx-auto max-w-[78rem] border-t border-b" style={{ borderColor: PALETTE.lineStrong }}>
-            <div className="grid md:grid-cols-3">
-              {PROOF_POINTS.map((item, index) => (
+        {/* ── Core Capabilities (3-column grid) ── */}
+        <section className="noo-section-pad" style={{ padding: '160px 48px', borderBottom: `1px solid ${PALETTE.border}` }}>
+          <div style={{ maxWidth: 1440, margin: '0 auto' }}>
+            <div className="noo-cap-grid" style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 1,
+              background: PALETTE.border,
+              border: `1px solid ${PALETTE.border}`,
+            }}>
+              {CAPABILITIES.map((item, index) => (
                 <motion.div
-                  key={item.label}
-                  {...revealProps(reducedMotion, index * 0.05)}
-                  className={`border-b px-4 py-5 md:border-b-0 md:px-6 lg:px-8 ${index < PROOF_POINTS.length - 1 ? 'md:border-r' : ''}`}
-                  style={{ borderColor: PALETTE.line }}
+                  key={item.ref}
+                  {...revealProps(reducedMotion, index * 0.08)}
+                  style={{
+                    background: PALETTE.bg,
+                    padding: 72,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: 480,
+                  }}
                 >
-                  <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                    {item.label}
+                  <MicroLabel>{item.ref}</MicroLabel>
+                  <div>
+                    <h3 style={{
+                      fontFamily: FONTS.sans,
+                      fontSize: 36,
+                      fontWeight: 900,
+                      letterSpacing: '-0.03em',
+                      lineHeight: 1,
+                      textTransform: 'uppercase',
+                      marginBottom: 28,
+                      whiteSpace: 'pre-line',
+                    }}>
+                      {item.title}
+                    </h3>
+                    <p style={{ fontSize: 17, fontWeight: 300, lineHeight: 1.7, color: PALETTE.body }}>
+                      {item.body}
+                    </p>
                   </div>
-                  <div className="mt-2 text-base font-medium sm:text-lg">{item.value}</div>
+                  <div style={{ marginTop: 40, color: PALETTE.accentDark }}>
+                    <item.Icon size={36} />
+                  </div>
                 </motion.div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ── Section 2: How it works ── */}
-        <section id="how-it-works" className="scroll-mt-24 border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
-          <div className="mx-auto grid max-w-[78rem] gap-10 lg:grid-cols-[0.95fr_1.4fr]">
-            <motion.div {...revealProps(reducedMotion, 0.04)}>
-              <SectionLabel>How it works</SectionLabel>
-              <h2 className="max-w-[18ch] text-[clamp(2rem,4vw,3.4rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Four steps from Stripe to first recommendation.
-              </h2>
-              <p className="mt-5 max-w-[34rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
+        {/* ── Operational Flow (4-step with hover) ── */}
+        <section id="how-it-works" className="noo-section-pad" style={{ padding: '160px 48px', maxWidth: 1440, margin: '0 auto', scrollMarginTop: 100 }}>
+          {/* Section header */}
+          <div className="noo-flow-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 48, marginBottom: 100 }}>
+            <motion.h2
+              {...revealProps(reducedMotion, 0)}
+              style={{
+                fontFamily: FONTS.sans,
+                fontSize: 'clamp(40px, 5vw, 72px)',
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                lineHeight: 0.9,
+                textTransform: 'uppercase',
+                maxWidth: 600,
+              }}
+            >
+              Four Steps to First Recommendation.
+            </motion.h2>
+            <motion.div {...revealProps(reducedMotion, 0.1)} style={{ maxWidth: 360 }}>
+              <p style={{
+                fontSize: 18,
+                fontWeight: 300,
+                lineHeight: 1.7,
+                color: PALETTE.body,
+                paddingLeft: 28,
+                borderLeft: `2px solid ${PALETTE.accent}`,
+              }}>
                 No implementation project. No data migration. Nooterra reads directly from Stripe and starts working with whatever you already have.
               </p>
             </motion.div>
+          </div>
 
-            <div className="border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel }}>
-              <div className="grid md:grid-cols-2 xl:grid-cols-4">
-                {HOW_STEPS.map((item, index) => (
-                  <motion.div
-                    key={item.step}
-                    {...revealProps(reducedMotion, index * 0.05)}
-                    className={`border-b px-4 py-6 md:px-5 xl:border-b-0 ${index < HOW_STEPS.length - 1 ? 'xl:border-r' : ''}`}
-                    style={{ borderColor: PALETTE.line }}
+          {/* Steps grid */}
+          <div className="noo-step-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 40 }}>
+            {HOW_STEPS.map((item, index) => (
+              <motion.div
+                key={item.step}
+                {...revealProps(reducedMotion, index * 0.06)}
+                className="noo-step-card"
+                style={{ borderBottom: `1px solid ${PALETTE.border}`, paddingBottom: 24, cursor: 'default' }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 24,
+                  fontFamily: FONTS.sans,
+                  fontWeight: 900,
+                  fontSize: 13,
+                  letterSpacing: '0.12em',
+                  color: PALETTE.ink,
+                }}>
+                  <span>{item.step}</span>
+                  <span
+                    className="noo-active-tag"
+                    style={{ fontFamily: FONTS.mono, fontSize: 10, color: PALETTE.accent, letterSpacing: '0.1em' }}
                   >
-                    <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.teal, fontFamily: FONTS.mono }}>
-                      {item.step}
-                    </div>
-                    <h3 className="mt-4 text-xl font-medium tracking-[-0.03em]">{item.title}</h3>
-                    <p className="mt-4 text-sm leading-7" style={{ color: PALETTE.steel }}>
-                      {item.body}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Section 3: Why not just use Stripe? ── */}
-        <section id="why-nooterra" className="scroll-mt-24 border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
-          <div className="mx-auto max-w-[78rem]">
-            <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
-              <SectionLabel>Stripe handles recovery. You still need judgment.</SectionLabel>
-              <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                Stripe retries the card.{' '}
-                <span style={{ color: PALETTE.steel }}>
-                  Nobody follows up on the rest.
-                </span>
-              </h2>
-            </motion.div>
-
-            <div className="grid gap-px border md:grid-cols-2" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.lineStrong }}>
-              <motion.div {...revealProps(reducedMotion, 0.04)} className="px-5 py-6 sm:px-6" style={{ background: PALETTE.panel }}>
-                <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                  What Stripe handles
+                    &#9679; ACTIVE
+                  </span>
                 </div>
-                <div className="mt-5 space-y-3">
-                  {STRIPE_HANDLES.map((item) => (
-                    <div key={item} className="flex items-center gap-3 text-sm" style={{ color: PALETTE.steel }}>
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center border text-[10px]" style={{ borderColor: PALETTE.line, fontFamily: FONTS.mono, color: PALETTE.steelSoft }}>
-                        OK
-                      </span>
-                      <span>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-
-              <motion.div {...revealProps(reducedMotion, 0.08)} className="px-5 py-6 sm:px-6" style={{ background: PALETTE.paper }}>
-                <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.teal, fontFamily: FONTS.mono }}>
-                  What Nooterra adds
-                </div>
-                <div className="mt-5 space-y-3">
-                  {NOOTERRA_ADDS.map((item) => (
-                    <div key={item} className="flex items-center gap-3 text-sm" style={{ color: PALETTE.ink }}>
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center border text-[10px]" style={{ borderColor: PALETTE.teal, background: PALETTE.tealSoft, fontFamily: FONTS.mono, color: PALETTE.teal }}>
-                        GO
-                      </span>
-                      <span>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Section 4: Trust signals ── */}
-        <section className="border-b px-4 py-12 sm:px-6 lg:px-8 lg:py-16" style={{ borderColor: PALETTE.lineStrong }}>
-          <div className="mx-auto max-w-[78rem]">
-            <motion.div {...revealProps(reducedMotion, 0.04)} className="mb-10 max-w-[48rem]">
-              <SectionLabel>Why this is safe to try</SectionLabel>
-              <h2 className="text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                You stay in control. Always.
-              </h2>
-            </motion.div>
-
-            <div className="border" style={{ borderColor: PALETTE.lineStrong, background: PALETTE.panel }}>
-              <div className="grid lg:grid-cols-3">
-                {TRUST_POINTS.map((item, index) => (
-                  <motion.div
-                    key={item.title}
-                    {...revealProps(reducedMotion, index * 0.04)}
-                    className={`border-b px-5 py-6 lg:border-b-0 ${index < TRUST_POINTS.length - 1 ? 'lg:border-r' : ''}`}
-                    style={{ borderColor: PALETTE.line }}
-                  >
-                    <h3 className="text-lg font-medium tracking-[-0.03em]">{item.title}</h3>
-                    <p className="mt-4 text-sm leading-7" style={{ color: PALETTE.steel }}>
-                      {item.body}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Section 5: Bottom CTA ── */}
-        <section className="px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
-          <motion.div
-            {...revealProps(reducedMotion, 0.04)}
-            className="mx-auto max-w-[78rem] border p-6 sm:p-8 lg:p-10"
-            style={{ borderColor: PALETTE.lineStrong, background: 'linear-gradient(135deg, rgba(250,247,241,0.98), rgba(236,228,215,0.94))' }}
-          >
-            <div className="grid gap-8 lg:grid-cols-[1.25fr_0.85fr] lg:items-end">
-              <div>
-                <SectionLabel>Get started</SectionLabel>
-                <h2 className="max-w-[20ch] text-[clamp(2rem,4vw,3.25rem)] font-medium leading-[1.02] tracking-[-0.05em]">
-                  See it work on your own data.
-                </h2>
-                <p className="mt-5 max-w-[38rem] text-base leading-7 sm:text-lg" style={{ color: PALETTE.steel }}>
-                  Connect Stripe and watch Nooterra analyze your overdue invoices in your first session. No commitment. No credit card.
+                <h4 style={{
+                  fontFamily: FONTS.sans,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  marginBottom: 14,
+                  letterSpacing: '-0.01em',
+                }}>
+                  {item.title}
+                </h4>
+                <p style={{ fontSize: 15, fontWeight: 300, lineHeight: 1.7, color: PALETTE.body }}>
+                  {item.body}
                 </p>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Comparison (dark section) ── */}
+        <section
+          id="why-nooterra"
+          className="noo-section-pad"
+          style={{
+            background: PALETTE.dark,
+            color: '#ffffff',
+            padding: '160px 48px',
+            position: 'relative',
+            overflow: 'hidden',
+            scrollMarginTop: 100,
+          }}
+        >
+          {/* Accent glow */}
+          <div style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            width: '33%',
+            height: '100%',
+            background: `${PALETTE.accent}10`,
+            filter: 'blur(150px)',
+            pointerEvents: 'none',
+          }} />
+
+          <div style={{ maxWidth: 1440, margin: '0 auto', position: 'relative', zIndex: 10 }}>
+            <div className="noo-compare-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 100, alignItems: 'center' }}>
+              {/* Left: copy */}
+              <div>
+                <motion.div {...revealProps(reducedMotion, 0)}>
+                  <MicroLabel style={{ color: PALETTE.accent, fontWeight: 900, marginBottom: 28, letterSpacing: '0.5em' }}>
+                    STRIPE_RECOVERY_GAP
+                  </MicroLabel>
+                  <h2 style={{
+                    fontFamily: FONTS.sans,
+                    fontSize: 'clamp(40px, 5vw, 72px)',
+                    fontWeight: 900,
+                    letterSpacing: '-0.04em',
+                    lineHeight: 0.95,
+                    textTransform: 'uppercase',
+                    marginBottom: 56,
+                  }}>
+                    The Recovery<br />Gap.
+                  </h2>
+                </motion.div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 40 }}>
+                  {COMPARISON_POINTS.map((item, index) => (
+                    <motion.div
+                      key={item.title}
+                      {...revealProps(reducedMotion, 0.1 + index * 0.08)}
+                      style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}
+                    >
+                      <div style={{ width: 16, height: 16, background: PALETTE.accent, flexShrink: 0, marginTop: 4 }} />
+                      <div>
+                        <h5 style={{
+                          fontFamily: FONTS.sans,
+                          fontSize: 18,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          marginBottom: 10,
+                        }}>
+                          {item.title}
+                        </h5>
+                        <p style={{ fontSize: 15, fontWeight: 300, lineHeight: 1.7, color: 'rgba(255,255,255,0.5)' }}>
+                          {item.body}
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
+              {/* Right: comparison table */}
+              <motion.div {...revealProps(reducedMotion, 0.15)}>
+                <div style={{
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: 4,
+                }}>
+                  <div style={{
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    padding: 48,
+                  }}>
+                    <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          {['Vector', 'Stripe', 'Nooterra'].map((h, i) => (
+                            <th
+                              key={h}
+                              style={{
+                                paddingBottom: 36,
+                                fontFamily: FONTS.mono,
+                                fontSize: 10,
+                                fontWeight: 900,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4em',
+                                color: i === 2 ? PALETTE.accent : 'rgba(255,255,255,0.35)',
+                                border: 'none',
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {COMPARISON_TABLE.map((row, i) => (
+                          <tr key={row.vector} style={{ borderBottom: i < COMPARISON_TABLE.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                            <td style={{
+                              padding: '24px 0',
+                              fontFamily: FONTS.mono,
+                              fontSize: 12,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.12em',
+                              color: 'rgba(255,255,255,0.7)',
+                            }}>
+                              {row.vector}
+                            </td>
+                            <td style={{
+                              padding: '24px 0',
+                              fontFamily: FONTS.mono,
+                              fontSize: 12,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.12em',
+                              color: 'rgba(255,255,255,0.3)',
+                            }}>
+                              {row.legacy}
+                            </td>
+                            <td style={{
+                              padding: '24px 0',
+                              fontFamily: FONTS.mono,
+                              fontSize: 12,
+                              fontWeight: 900,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.12em',
+                              color: PALETTE.accent,
+                            }}>
+                              [{row.nooterra}]
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── The Protocol (trust cards) ── */}
+        <section className="noo-section-pad" style={{ padding: '160px 48px', maxWidth: 1440, margin: '0 auto' }}>
+          {/* Header */}
+          <div style={{ textAlign: 'center', marginBottom: 100 }}>
+            <motion.div {...revealProps(reducedMotion, 0)}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 20px',
+                background: PALETTE.surfaceHigh,
+                marginBottom: 40,
+              }}>
+                <span style={{
+                  fontFamily: FONTS.sans,
+                  fontSize: 10,
+                  fontWeight: 900,
+                  letterSpacing: '0.4em',
+                  textTransform: 'uppercase',
+                  color: PALETTE.ink,
+                }}>
+                  SECURED BY DESIGN // AUDIT-READY
+                </span>
+              </div>
+            </motion.div>
+            <motion.h2
+              {...revealProps(reducedMotion, 0.06)}
+              style={{
+                fontFamily: FONTS.sans,
+                fontSize: 'clamp(40px, 5vw, 72px)',
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                lineHeight: 1,
+                textTransform: 'uppercase',
+                marginBottom: 12,
+              }}
+            >
+              The Protocol
+            </motion.h2>
+            <motion.p
+              {...revealProps(reducedMotion, 0.1)}
+              style={{
+                fontFamily: FONTS.sans,
+                fontSize: 12,
+                fontWeight: 500,
+                textTransform: 'uppercase',
+                letterSpacing: '0.2em',
+                color: PALETTE.body,
+              }}
+            >
+              Non-Negotiable Transparency
+            </motion.p>
+          </div>
+
+          {/* Cards */}
+          <div className="noo-trust-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 1,
+            background: PALETTE.border,
+            border: `1px solid ${PALETTE.border}`,
+          }}>
+            {TRUST_POINTS.map((item, index) => (
+              <motion.div
+                key={item.title}
+                {...revealProps(reducedMotion, index * 0.06)}
+                style={{
+                  background: PALETTE.bg,
+                  padding: 56,
+                }}
+              >
+                <div style={{ width: 48, height: 3, background: PALETTE.accent, marginBottom: 36 }} />
+                <h4 style={{
+                  fontFamily: FONTS.sans,
+                  fontSize: 22,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '-0.01em',
+                  marginBottom: 20,
+                }}>
+                  {item.title}
+                </h4>
+                <p style={{ fontSize: 15, fontWeight: 300, lineHeight: 1.7, color: PALETTE.body }}>
+                  {item.body}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Bottom CTA (dark) ── */}
+        <section className="noo-section-pad" style={{ maxWidth: 1440, margin: '0 auto', padding: '0 48px 160px' }}>
+          <motion.div
+            {...revealProps(reducedMotion, 0)}
+            className="noo-cta-inner"
+            style={{
+              background: PALETTE.dark,
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: 80,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 64,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Left copy */}
+            <div style={{ maxWidth: 520, position: 'relative', zIndex: 10 }}>
+              <h2 style={{
+                fontFamily: FONTS.sans,
+                fontSize: 'clamp(36px, 5vw, 64px)',
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                lineHeight: 0.9,
+                textTransform: 'uppercase',
+                color: '#ffffff',
+                marginBottom: 32,
+              }}>
+                See It Work<br />On Your Data.
+              </h2>
+              <p style={{ fontSize: 18, fontWeight: 300, lineHeight: 1.7, color: 'rgba(255,255,255,0.5)', marginBottom: 40 }}>
+                Connect Stripe and watch Nooterra analyze your overdue invoices in your first session. No commitment. No credit card.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
                 <a
                   href="/setup"
-                  className="btn-primary inline-flex items-center justify-center gap-2 border px-5 py-3 text-[14px] tracking-[-0.01em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.sans, fontWeight: 500 }}
+                  className="noo-btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '22px 48px',
+                    background: PALETTE.accent,
+                    color: PALETTE.ink,
+                    fontFamily: FONTS.sans,
+                    fontWeight: 900,
+                    fontSize: 12,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3em',
+                  }}
                 >
-                  Get started
-                  <ArrowRight size={15} />
+                  Get Started
+                  <ArrowRight size={16} />
                 </a>
                 <a
                   href="/docs"
-                  className="btn-ghost inline-flex items-center justify-center border px-5 py-3 text-[14px] tracking-[-0.01em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.sans, fontWeight: 500 }}
+                  className="noo-nav-link"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '22px 12px',
+                    color: '#ffffff',
+                    fontFamily: FONTS.sans,
+                    fontWeight: 900,
+                    fontSize: 12,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3em',
+                    borderBottom: `1px solid ${PALETTE.accent}`,
+                  }}
                 >
-                  Read the docs
+                  Documentation
                 </a>
               </div>
             </div>
+
+            {/* Right: terminal mockup */}
+            <div style={{ flex: '1 1 380px', maxWidth: 480, position: 'relative', zIndex: 10 }}>
+              <div style={{
+                background: '#1a2b3c',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: 4,
+                boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+              }}>
+                <div style={{
+                  background: PALETTE.dark,
+                  border: '1px solid rgba(255,255,255,0.05)',
+                  padding: 28,
+                }}>
+                  {/* Window dots */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        { bg: 'rgba(239,68,68,0.2)', border: 'rgba(239,68,68,0.5)' },
+                        { bg: 'rgba(234,179,8,0.2)', border: 'rgba(234,179,8,0.5)' },
+                        { bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.5)' },
+                      ].map((dot, i) => (
+                        <div key={i} style={{ width: 10, height: 10, background: dot.bg, border: `1px solid ${dot.border}` }} />
+                      ))}
+                    </div>
+                    <MicroLabel style={{ color: PALETTE.accent }}>LIVE_SIMULATION</MicroLabel>
+                  </div>
+
+                  {/* Content lines */}
+                  <div style={{ height: 2, background: 'rgba(255,255,255,0.05)', marginBottom: 20 }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+                    <div style={{
+                      width: 40,
+                      height: 40,
+                      background: `${PALETTE.accent}20`,
+                      border: `1px solid ${PALETTE.accent}50`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <Activity size={18} color={PALETTE.accent} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ height: 6, background: 'rgba(255,255,255,0.2)', width: '75%', marginBottom: 6 }} />
+                      <div style={{ height: 6, background: 'rgba(255,255,255,0.05)', width: '50%' }} />
+                    </div>
+                  </div>
+
+                  {/* Metric cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ padding: 14, border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.03)' }}>
+                      <div style={{ fontFamily: FONTS.mono, fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                        RECOVERY_PROB
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#ffffff' }}>92.4%</div>
+                    </div>
+                    <div style={{ padding: 14, border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.03)' }}>
+                      <div style={{ fontFamily: FONTS.mono, fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                        LATENT_REVENUE
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: PALETTE.accent }}>$42.8K</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Decorative markers */}
+            <MicroLabel style={{ position: 'absolute', bottom: 16, left: 24, color: 'rgba(255,255,255,0.12)' }}>0,0 // NULL</MicroLabel>
+            <MicroLabel style={{ position: 'absolute', top: 16, right: 24, color: 'rgba(255,255,255,0.12)' }}>1,1 // FULL_AUTH</MicroLabel>
           </motion.div>
         </section>
       </main>
 
-      <footer className="border-t px-4 py-6 sm:px-6 lg:px-8" style={{ borderColor: PALETTE.lineStrong }}>
-        <div className="mx-auto flex max-w-[78rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex items-center gap-3">
-            <NooterraLogo size={18} />
-            <span className="text-sm" style={{ color: PALETTE.steel }}>
-              Nooterra
-            </span>
+      {/* ── Footer ── */}
+      <footer className="noo-section-pad" style={{
+        padding: '80px 48px',
+        background: PALETTE.bg,
+        borderTop: `1px solid ${PALETTE.border}`,
+      }}>
+        <div style={{ maxWidth: 1440, margin: '0 auto' }}>
+          {/* Top row */}
+          <div className="noo-footer-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 80 }}>
+            <div>
+              <div style={{
+                fontFamily: FONTS.sans,
+                fontSize: 28,
+                fontWeight: 900,
+                letterSpacing: '-0.04em',
+                color: PALETTE.ink,
+                marginBottom: 24,
+              }}>
+                NOOTERRA
+              </div>
+              <p style={{ maxWidth: 300, fontSize: 14, fontWeight: 300, lineHeight: 1.7, color: PALETTE.body }}>
+                Precision recovery for modern finance teams. Built for those who treat data as the ultimate leverage.
+              </p>
+            </div>
+
+            <div className="noo-footer-links" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 64, marginTop: 0 }}>
+              {[
+                { heading: 'Product', links: [['How it works', '#how-it-works'], ['Why Nooterra', '#why-nooterra']] },
+                { heading: 'Support', links: [['Docs', '/docs'], ['API', '/docs']] },
+                { heading: 'Legal', links: [['Privacy', '/privacy'], ['Terms', '/terms']] },
+                { heading: 'Connect', links: [['GitHub', 'https://github.com/nooterra/nooterra'], ['X', 'https://x.com/nooterra']] },
+              ].map((col) => (
+                <div key={col.heading} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <span style={{
+                    fontFamily: FONTS.sans,
+                    fontSize: 10,
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.2em',
+                    color: PALETTE.ink,
+                    marginBottom: 8,
+                  }}>
+                    {col.heading}
+                  </span>
+                  {col.links.map(([label, href]) => (
+                    <a
+                      key={label}
+                      href={href}
+                      style={{
+                        fontSize: 13,
+                        color: PALETTE.body,
+                        textDecoration: 'none',
+                        lineHeight: 1.8,
+                      }}
+                    >
+                      {label}
+                    </a>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-4 text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steel, fontFamily: FONTS.mono }}>
-            <a href="/docs" className="nav-link no-underline" style={{ color: 'inherit' }}>Docs</a>
-            <a href="/privacy" className="nav-link no-underline" style={{ color: 'inherit' }}>Privacy</a>
-            <a href="/terms" className="nav-link no-underline" style={{ color: 'inherit' }}>Terms</a>
-            <a href="https://github.com/nooterra/nooterra" className="nav-link no-underline" style={{ color: 'inherit' }}>GitHub</a>
+
+          {/* Bottom rule */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingTop: 36,
+            borderTop: `1px solid ${PALETTE.border}`,
+          }}>
+            <p style={{
+              fontFamily: FONTS.mono,
+              fontSize: 10,
+              letterSpacing: '0.12em',
+              color: PALETTE.muted,
+            }}>
+              &copy; 2026 NOOTERRA
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ width: 8, height: 8, background: PALETTE.accent }} />
+              <div style={{ width: 8, height: 8, background: PALETTE.ink }} />
+              <div style={{ width: 8, height: 8, background: PALETTE.border }} />
+            </div>
           </div>
         </div>
       </footer>
