@@ -16,7 +16,8 @@ const PALETTE = {
 };
 
 const FONTS = {
-  sans: "'Satoshi', 'Geist', system-ui, sans-serif",
+  display: "'DM Sans', system-ui, sans-serif",
+  sans: "'DM Sans', 'Satoshi', system-ui, sans-serif",
   mono: "'Geist Mono', 'SF Mono', monospace",
   serif: "'Instrument Serif', Georgia, serif",
 };
@@ -333,7 +334,7 @@ export default function LandingPage() {
       style={{
         background: PALETTE.paper,
         color: PALETTE.ink,
-        fontFamily: FONTS.sans,
+        fontFamily: FONTS.display,
       }}
     >
       <style>{`
@@ -358,15 +359,13 @@ export default function LandingPage() {
           width: 100%;
         }
         .btn-primary {
-          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: background 0.15s ease;
         }
         .btn-primary:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(23, 20, 17, 0.2);
+          background: #3a3530 !important;
         }
         .btn-primary:active {
-          transform: translateY(0);
-          box-shadow: none;
+          background: #171411 !important;
         }
         .btn-secondary {
           transition: background 0.2s ease, border-color 0.2s ease;
@@ -420,76 +419,70 @@ export default function LandingPage() {
       <main>
         {/* ── Section 1: Hero ── */}
         <section className="scroll-mt-24 border-b" style={{ borderColor: PALETTE.lineStrong }}>
-          {/* Hero text — centered */}
-          <div className="mx-auto max-w-[78rem] px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-            <div className="mx-auto max-w-[52rem] text-center">
+          <div className="mx-auto grid max-w-[78rem] lg:grid-cols-[1.1fr_1fr]">
+            {/* Left: headline + CTA */}
+            <div className="flex flex-col justify-center px-4 py-14 sm:px-6 lg:border-r lg:px-10 lg:py-24" style={{ borderColor: PALETTE.lineStrong }}>
               <motion.h1
-                {...loadProps(reducedMotion, 0.06)}
-                className="mx-auto text-[clamp(3rem,7.5vw,5.8rem)] font-semibold leading-[0.9] tracking-[-0.045em]"
+                {...loadProps(reducedMotion, 0.04)}
+                className="text-[clamp(2.8rem,5.5vw,4.6rem)] leading-[1] tracking-[-0.04em]"
+                style={{ fontFamily: FONTS.display, fontWeight: 800 }}
               >
-                Stop losing revenue to invoices nobody follows up on
+                Overdue invoices.{' '}
+                <br className="hidden sm:block" />
+                Recovered.
               </motion.h1>
 
               <motion.p
-                {...loadProps(reducedMotion, 0.14)}
-                className="mx-auto mt-8 max-w-[36rem] text-[1.15rem] leading-[1.75]"
+                {...loadProps(reducedMotion, 0.12)}
+                className="mt-6 max-w-[30rem] text-[1.05rem] leading-[1.7]"
                 style={{ color: PALETTE.steel }}
               >
-                Nooterra is an AI collections specialist. It connects to Stripe, reads every payment pattern, and tells you exactly which accounts need attention — with the evidence to back it up.
+                AI-powered collections that connect to Stripe, read every payment pattern, and follow up on overdue accounts — with evidence and your approval.
               </motion.p>
 
-              <motion.div {...loadProps(reducedMotion, 0.26)} className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <motion.div {...loadProps(reducedMotion, 0.2)} className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <a
                   href="/setup"
-                  className="btn-primary inline-flex items-center justify-center gap-2 border px-7 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
-                  style={{ borderColor: PALETTE.ink, background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.mono }}
+                  className="btn-primary inline-flex items-center justify-center gap-2 px-7 py-3.5 text-[13px] font-medium tracking-[-0.01em] no-underline"
+                  style={{ background: PALETTE.ink, color: PALETTE.panel, fontFamily: FONTS.sans, borderRadius: '6px' }}
                 >
                   Get started
-                  <ArrowRight size={15} />
+                  <ArrowRight size={16} strokeWidth={2} />
                 </a>
                 <a
                   href="#how-it-works"
-                  className="btn-secondary inline-flex items-center justify-center border px-7 py-3.5 text-[12px] uppercase tracking-[0.16em] no-underline"
-                  style={{ borderColor: PALETTE.lineStrong, color: PALETTE.ink, fontFamily: FONTS.mono }}
+                  className="nav-link inline-flex items-center gap-1 px-2 py-2 text-[13px] font-medium tracking-[-0.01em] no-underline"
+                  style={{ color: PALETTE.ink, fontFamily: FONTS.sans }}
                 >
-                  See how it works
+                  Explore product
                 </a>
               </motion.div>
-            </div>
-          </div>
 
-          {/* Product showcase — centered below hero text */}
-          <div className="border-t" style={{ borderColor: PALETTE.lineStrong }}>
-            <div
-              className="mx-auto max-w-[78rem] px-4 py-10 sm:px-6 lg:px-8 lg:py-14"
-              style={{ background: 'linear-gradient(180deg, rgba(250,247,241,0.96), rgba(236,228,215,0.92))' }}
-            >
-              <motion.div {...loadProps(reducedMotion, 0.1)} className="mb-5 flex items-center justify-center gap-6 border-b pb-4" style={{ borderColor: PALETTE.line, color: PALETTE.steelSoft }}>
-                <span className="text-[11px] uppercase tracking-[0.22em]" style={{ fontFamily: FONTS.mono }}>
-                  What a collections review looks like
-                </span>
+              {/* Proof strip */}
+              <motion.div
+                {...loadProps(reducedMotion, 0.3)}
+                className="mt-12 flex flex-wrap gap-6 border-t pt-6"
+                style={{ borderColor: PALETTE.line }}
+              >
+                {PROOF_POINTS.map((item) => (
+                  <div key={item.label}>
+                    <div className="text-[10px] uppercase tracking-[0.2em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
+                      {item.label}
+                    </div>
+                    <div className="mt-1 text-sm font-medium">{item.value}</div>
+                  </div>
+                ))}
               </motion.div>
-              <div className="mx-auto max-w-[54rem]">
+            </div>
+
+            {/* Right: product visual */}
+            <div
+              className="flex items-center justify-center overflow-hidden px-4 py-8 sm:px-6 lg:px-6 lg:py-10"
+              style={{ background: 'linear-gradient(180deg, rgba(250,247,241,0.98), rgba(236,228,215,0.94))' }}
+            >
+              <div className="w-full max-w-[32rem]">
                 <DecisionDossierMockup />
               </div>
-            </div>
-          </div>
-
-          <div className="mx-auto max-w-[78rem] border-t" style={{ borderColor: PALETTE.lineStrong }}>
-            <div className="grid md:grid-cols-3">
-              {PROOF_POINTS.map((item, index) => (
-                <motion.div
-                  key={item.label}
-                  {...revealProps(reducedMotion, index * 0.05)}
-                  className={`border-b px-4 py-5 md:border-b-0 md:px-6 lg:px-8 ${index < PROOF_POINTS.length - 1 ? 'md:border-r' : ''}`}
-                  style={{ borderColor: PALETTE.line }}
-                >
-                  <div className="text-[11px] uppercase tracking-[0.18em]" style={{ color: PALETTE.steelSoft, fontFamily: FONTS.mono }}>
-                    {item.label}
-                  </div>
-                  <div className="mt-2 text-base font-medium sm:text-lg">{item.value}</div>
-                </motion.div>
-              ))}
             </div>
           </div>
         </section>
