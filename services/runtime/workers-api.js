@@ -43,12 +43,14 @@ function generateId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
 }
 
-function getTenantId(req) {
-  const h = req.headers['x-tenant-id'];
-  if (h && h.trim()) return h.trim();
-  const cookie = req.headers.cookie || '';
-  const m = cookie.match(/(?:^|;\s*)tenant_id=([^;]+)/);
-  if (m) return decodeURIComponent(m[1]).trim() || null;
+/**
+ * SECURITY: Get tenant ID from authenticated session only.
+ * Never trusts raw x-tenant-id headers without session validation.
+ */
+async function getTenantId(req) {
+  const { getAuthenticatedPrincipal } = await import('./auth.js');
+  const principal = await getAuthenticatedPrincipal(req);
+  if (principal) return principal.tenantId;
   return null;
 }
 
@@ -1368,7 +1370,7 @@ function extractBusinessName(desc) {
  */
 export async function handleWorkerRoute(req, res, pool, pathname, searchParams) {
   // Rate limit by tenant or IP
-  const rateLimitKey = getTenantId(req) || req.socket?.remoteAddress || 'unknown';
+  const rateLimitKey = (await getTenantId(req)) || req.socket?.remoteAddress || 'unknown';
   if (!checkApiRateLimit(rateLimitKey)) {
     res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
     res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
@@ -1955,11 +1957,10 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
 
   // POST /v1/workers/:id/trigger — webhook trigger
   // POST /v1/workers/:id/trigger/test — manual test trigger
-  // Note: webhook triggers use header auth since webhooks don't have browser sessions
   const trigMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/trigger(\/test)?$/);
   if (method === 'POST' && trigMatch) {
-    const tid = getTenantId(req);
-    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const tid = await getTenantId(req);
+    if (!tid) return err(res, 401, 'Authentication required'), true;
     const isTest = trigMatch[2] === '/test';
     const wr = await pool.query(`SELECT id, model, status, triggers FROM workers WHERE id = $1 AND tenant_id = $2`, [trigMatch[1], tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
@@ -2562,8 +2563,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // GET /v1/workers/:id/feed — SSE activity feed (uses header auth for SSE compatibility)
   const feedMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/feed$/);
   if (method === 'GET' && feedMatch) {
-    const tid = getTenantId(req);
-    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const tid = await getTenantId(req);
+    if (!tid) return err(res, 401, 'Authentication required'), true;
     const wr = await pool.query(`SELECT id FROM workers WHERE id = $1 AND tenant_id = $2`, [feedMatch[1], tid]);
     if (wr.rowCount === 0) return err(res, 404, 'worker not found'), true;
 
@@ -2587,8 +2588,8 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
   // GET /v1/workers/:id/executions/:execId/stream — SSE execution streaming (uses header auth for SSE compatibility)
   const streamMatch = pathname.match(/^\/v1\/workers\/([^/]+)\/executions\/([^/]+)\/stream$/);
   if (method === 'GET' && streamMatch) {
-    const tid = getTenantId(req);
-    if (!tid) return err(res, 401, 'tenant identification required'), true;
+    const tid = await getTenantId(req);
+    if (!tid) return err(res, 401, 'Authentication required'), true;
     const [, workerId, execId] = streamMatch;
 
     // Validate execution belongs to worker and tenant
@@ -2689,10 +2690,10 @@ export async function handleWorkerRoute(req, res, pool, pathname, searchParams) 
     return true;
   }
 
-  // GET /v1/approvals/feed — SSE feed for approval inbox updates (uses header auth for SSE compatibility)
+  // GET /v1/approvals/feed — SSE feed for approval inbox updates
   if (method === 'GET' && pathname === '/v1/approvals/feed') {
-    const tenantId = getTenantId(req);
-    if (!tenantId) { res.writeHead(401); res.end('Unauthorized'); return true; }
+    const tenantId = await getTenantId(req);
+    if (!tenantId) { res.writeHead(401); res.end('Authentication required'); return true; }
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',

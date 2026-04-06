@@ -12,6 +12,14 @@ import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBi
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import { handleWorkerRoute } from './workers-api.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect } from './integrations.js';
+import { getAuthenticatedPrincipal, getAuthenticatedTenantId } from './auth.js';
+import { encryptCredential } from './crypto-utils.js';
+import {
+  ACTIVE_STRIPE_SCAN_TIMEOUT_MS,
+  DEFAULT_STRIPE_SCAN_LOOKBACK_DAYS,
+  createStripeScanId,
+  runStripeScan,
+} from './stripe-scans.js';
 import { handleWorldRuntimeRoute } from '../../src/api/world-runtime-routes.js';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +72,212 @@ function readBodyRaw(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
+async function requireAuthenticatedTenant(req: IncomingMessage): Promise<
+  { ok: true; tenantId: string; userId: string; email: string }
+  | { ok: false; status: number; message: string }
+> {
+  const principal = await getAuthenticatedPrincipal(req);
+  if (!principal) {
+    return { ok: false, status: 401, message: 'Authentication required' };
+  }
+
+  // Cross-check: if x-tenant-id header is present, it must match the session
+  const headerTenantId = req.headers['x-tenant-id'];
+  if (typeof headerTenantId === 'string' && headerTenantId.trim() && headerTenantId.trim() !== principal.tenantId) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'Authenticated tenant does not match x-tenant-id',
+    };
+  }
+
+  return { ok: true, tenantId: principal.tenantId, userId: principal.userId, email: principal.email };
+}
+
+// ---------------------------------------------------------------------------
+// Stripe historical data backfill
+// ---------------------------------------------------------------------------
+
+export async function backfillStripeData(
+  pool: pg.Pool,
+  tenantId: string,
+  apiKey: string,
+  log: (level: string, msg: string) => void,
+): Promise<void> {
+  const headers = { 'Authorization': `Bearer ${apiKey}` };
+  const { onStripeWebhook } = await import('../../src/bridge.js');
+
+  let totalIngested = 0;
+
+  try {
+    const makeBackfillEventId = (stripeType: string, objectId: string) =>
+      `backfill_${stripeType.replace(/\./g, '_')}_${objectId}`;
+
+    // --- Customers ---
+    let hasMore = true;
+    let startingAfter: string | undefined;
+    while (hasMore) {
+      const url = new URL('https://api.stripe.com/v1/customers');
+      url.searchParams.set('limit', '100');
+      if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+      const res = await fetch(url.toString(), { headers });
+      if (!res.ok) {
+        log('warn', `Stripe backfill: customers fetch failed (${res.status})`);
+        break;
+      }
+      const data = await res.json();
+
+      for (const customer of data.data || []) {
+        try {
+          await onStripeWebhook(pool, tenantId, {
+            id: makeBackfillEventId('customer.created', customer.id),
+            type: 'customer.created',
+            created: customer.created,
+            data: { object: customer },
+          });
+          totalIngested++;
+        } catch (err: any) {
+          log('warn', `Backfill customer ${customer.id}: ${err.message}`);
+        }
+      }
+
+      hasMore = data.has_more;
+      startingAfter = data.data?.[data.data.length - 1]?.id;
+    }
+
+    // --- Invoices (all statuses) ---
+    for (const status of ['open', 'paid', 'uncollectible', 'void']) {
+      hasMore = true;
+      startingAfter = undefined;
+      while (hasMore) {
+        const url = new URL('https://api.stripe.com/v1/invoices');
+        url.searchParams.set('limit', '100');
+        url.searchParams.set('status', status);
+        if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+        const res = await fetch(url.toString(), { headers });
+        if (!res.ok) {
+          log('warn', `Stripe backfill: invoices (${status}) fetch failed (${res.status})`);
+          break;
+        }
+        const data = await res.json();
+
+        const eventType = status === 'paid' ? 'invoice.paid'
+          : status === 'void' ? 'invoice.voided'
+          : 'invoice.created';
+
+        for (const invoice of data.data || []) {
+          try {
+            await onStripeWebhook(pool, tenantId, {
+              id: makeBackfillEventId(eventType, invoice.id),
+              type: eventType,
+              created: invoice.created,
+              data: { object: invoice },
+            });
+            totalIngested++;
+          } catch (err: any) {
+            log('warn', `Backfill invoice ${invoice.id}: ${err.message}`);
+          }
+        }
+
+        hasMore = data.has_more;
+        startingAfter = data.data?.[data.data.length - 1]?.id;
+      }
+    }
+
+    // --- Payment Intents (succeeded only) ---
+    hasMore = true;
+    startingAfter = undefined;
+    while (hasMore) {
+      const url = new URL('https://api.stripe.com/v1/payment_intents');
+      url.searchParams.set('limit', '100');
+      if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+      const res = await fetch(url.toString(), { headers });
+      if (!res.ok) {
+        log('warn', `Stripe backfill: payment_intents fetch failed (${res.status})`);
+        break;
+      }
+      const data = await res.json();
+
+      for (const pi of data.data || []) {
+        if (pi.status === 'succeeded') {
+          try {
+            await onStripeWebhook(pool, tenantId, {
+              id: makeBackfillEventId('payment_intent.succeeded', pi.id),
+              type: 'payment_intent.succeeded',
+              created: pi.created,
+              data: { object: pi },
+            });
+            totalIngested++;
+          } catch (err: any) {
+            log('warn', `Backfill payment ${pi.id}: ${err.message}`);
+          }
+        }
+      }
+
+      hasMore = data.has_more;
+      startingAfter = data.data?.[data.data.length - 1]?.id;
+    }
+
+    // --- Disputes (events only — no object materialization) ---
+    hasMore = true;
+    startingAfter = undefined;
+    while (hasMore) {
+      const url = new URL('https://api.stripe.com/v1/disputes');
+      url.searchParams.set('limit', '100');
+      if (startingAfter) url.searchParams.set('starting_after', startingAfter);
+
+      const res = await fetch(url.toString(), { headers });
+      if (!res.ok) {
+        log('warn', `Stripe backfill: disputes fetch failed (${res.status})`);
+        break;
+      }
+      const data = await res.json();
+
+      for (const dispute of data.data || []) {
+        try {
+          const eventType = dispute.status === 'won' || dispute.status === 'lost'
+            ? 'charge.dispute.closed'
+            : 'charge.dispute.created';
+          await onStripeWebhook(pool, tenantId, {
+            id: makeBackfillEventId(eventType, dispute.id),
+            type: eventType,
+            created: dispute.created,
+            data: { object: dispute },
+          });
+          totalIngested++;
+        } catch (err: any) {
+          log('warn', `Backfill dispute ${dispute.id}: ${err.message}`);
+        }
+      }
+
+      hasMore = data.has_more;
+      startingAfter = data.data?.[data.data.length - 1]?.id;
+    }
+
+    // Mark backfill as complete
+    await pool.query(
+      `UPDATE tenant_integrations
+       SET metadata = metadata || $2::jsonb, updated_at = now()
+       WHERE tenant_id = $1 AND service = 'stripe'`,
+      [tenantId, JSON.stringify({ status: 'backfill_complete', lastBackfilledAt: new Date().toISOString(), objectsIngested: totalIngested })],
+    );
+
+    log('info', `Stripe backfill complete for ${tenantId}: ${totalIngested} objects ingested`);
+  } catch (err) {
+    // Reset status so backfill can be retried
+    await pool.query(
+      `UPDATE tenant_integrations
+       SET metadata = metadata || $2::jsonb, updated_at = now()
+       WHERE tenant_id = $1 AND service = 'stripe'`,
+      [tenantId, JSON.stringify({ status: 'backfill_failed', lastError: (err as Error).message, failedAt: new Date().toISOString() })],
+    ).catch(() => {}); // Don't let status update failure mask the real error
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Route handler factory
 // ---------------------------------------------------------------------------
@@ -111,7 +325,7 @@ export function createRequestHandler(deps: RouterDeps) {
         }));
       } catch (err: any) {
         res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'unhealthy', db: { ok: false, error: err.message } }));
+        res.end(JSON.stringify({ status: 'unhealthy', db: { ok: false, error: 'Database connection failed' } }));
       }
       return;
     }
@@ -131,14 +345,15 @@ export function createRequestHandler(deps: RouterDeps) {
     // --- Billing ---
     if (req.method === 'POST' && pathname === '/v1/billing/checkout') {
       try {
-        const body = await readBody(req);
-        const data = JSON.parse(body);
-        const tenantId = req.headers['x-tenant-id'] || data.tenantId;
-        if (!tenantId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing tenant ID' }));
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
           return;
         }
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        const tenantId = auth.tenantId;
         if (!data.email) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing email' }));
@@ -158,7 +373,7 @@ export function createRequestHandler(deps: RouterDeps) {
           result = await createCheckoutSession({
             tenantId,
             email: data.email,
-            plan: data.plan || 'pro',
+            plan: data.plan || 'starter',
             successUrl: data.successUrl,
             cancelUrl: data.cancelUrl,
           }, pool);
@@ -169,7 +384,7 @@ export function createRequestHandler(deps: RouterDeps) {
       } catch (err: any) {
         log('error', `Billing checkout error: ${err.message}`);
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Checkout failed. Please try again.' }));
       }
       return;
     }
@@ -190,12 +405,13 @@ export function createRequestHandler(deps: RouterDeps) {
     }
 
     if (req.method === 'GET' && pathname === '/v1/billing/status') {
-      const tenantId = req.headers['x-tenant-id'] as string;
-      if (!tenantId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      const auth = await requireAuthenticatedTenant(req);
+      if (!auth.ok) {
+        res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: auth.message }));
         return;
       }
+      const tenantId = auth.tenantId;
       try {
         const status = await getBillingStatus(tenantId, pool);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -203,19 +419,20 @@ export function createRequestHandler(deps: RouterDeps) {
       } catch (err: any) {
         log('error', `Billing status error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Failed to retrieve billing status' }));
       }
       return;
     }
 
     // --- Notification preferences ---
     if (req.method === 'GET' && pathname === '/v1/notifications/preferences') {
-      const tenantId = req.headers['x-tenant-id'] as string;
-      if (!tenantId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      const auth = await requireAuthenticatedTenant(req);
+      if (!auth.ok) {
+        res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: auth.message }));
         return;
       }
+      const tenantId = auth.tenantId;
       try {
         const prefs = await getNotificationPreferences(pool, tenantId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -230,14 +447,15 @@ export function createRequestHandler(deps: RouterDeps) {
 
     if (req.method === 'PUT' && pathname === '/v1/notifications/preferences') {
       try {
-        const body = await readBody(req);
-        const data = JSON.parse(body);
-        const tenantId = req.headers['x-tenant-id'] as string;
-        if (!tenantId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
           return;
         }
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        const tenantId = auth.tenantId;
 
         await pool.query(`
           INSERT INTO notification_preferences (tenant_id, preferences, updated_at)
@@ -258,6 +476,14 @@ export function createRequestHandler(deps: RouterDeps) {
 
     if (req.method === 'POST' && pathname === '/v1/notifications/test-slack') {
       try {
+        // Require authentication
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+
         const body = await readBody(req);
         const data = JSON.parse(body);
         if (!data.webhookUrl) {
@@ -265,13 +491,22 @@ export function createRequestHandler(deps: RouterDeps) {
           res.end(JSON.stringify({ error: 'Missing webhookUrl' }));
           return;
         }
-        const result = await sendSlackTestNotification(data.webhookUrl);
+
+        // SSRF protection: only allow Slack webhook URLs
+        const webhookUrl = String(data.webhookUrl).trim();
+        if (!webhookUrl.startsWith('https://hooks.slack.com/')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Only Slack webhook URLs (https://hooks.slack.com/) are allowed' }));
+          return;
+        }
+
+        const result = await sendSlackTestNotification(webhookUrl);
         res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err: any) {
-        log('error', `Slack test error: ${err.message}`);
+        log('error', `Slack test error`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Slack test failed' }));
       }
       return;
     }
@@ -283,6 +518,294 @@ export function createRequestHandler(deps: RouterDeps) {
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const handled = await handleWorkerRoute(req, res, pool, pathname, url.searchParams);
       if (handled) return;
+    }
+
+    // --- Stripe API Key (BYOK) ---
+    if (req.method === 'POST' && pathname === '/v1/integrations/stripe/key') {
+      try {
+        const auth = await requireAuthenticatedTenant(req);
+        if (auth.ok === false) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+        const tenantId = auth.tenantId;
+
+        const body = await readBody(req);
+        const { apiKey } = JSON.parse(body);
+
+        if (!apiKey || typeof apiKey !== 'string' || !apiKey.startsWith('sk_')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid Stripe API key. Must start with sk_live_ or sk_test_' }));
+          return;
+        }
+
+        // Validate key by calling Stripe API
+        try {
+          const stripeRes = await fetch('https://api.stripe.com/v1/balance', {
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+          });
+          if (!stripeRes.ok) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Stripe API key validation failed. Check your key and try again.' }));
+            return;
+          }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Could not reach Stripe API. Try again.' }));
+          return;
+        }
+
+        // Encrypt and store
+        let encrypted;
+        try {
+          encrypted = encryptCredential(apiKey);
+        } catch (err: any) {
+          log('error', `Stripe key storage blocked: ${err.message}`);
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Secure credential storage is not configured' }));
+          return;
+        }
+        const id = `int_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        await pool.query(
+          `INSERT INTO tenant_integrations (id, tenant_id, service, status, credentials_encrypted, metadata, connected_at, updated_at)
+           VALUES ($1, $2, 'stripe', 'connected', $3, $4::jsonb, now(), now())
+           ON CONFLICT (tenant_id, service) DO UPDATE SET
+             credentials_encrypted = EXCLUDED.credentials_encrypted,
+             status = 'connected',
+             metadata = EXCLUDED.metadata,
+             updated_at = now()`,
+          [id, tenantId, encrypted, JSON.stringify({ method: 'api_key', keyPrefix: apiKey.slice(0, 7) + '...' })],
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, service: 'stripe', status: 'connected' }));
+      } catch (err: any) {
+        log('error', `Stripe key storage error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to store API key' }));
+      }
+      return;
+    }
+
+    // --- Stripe historical data backfill ---
+    if (req.method === 'POST' && pathname === '/v1/integrations/stripe/backfill') {
+      try {
+        const auth = await requireAuthenticatedTenant(req);
+        if (auth.ok === false) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+        const tenantId = auth.tenantId;
+
+        // Get encrypted API key
+        const keyResult = await pool.query(
+          `SELECT credentials_encrypted FROM tenant_integrations
+           WHERE tenant_id = $1 AND service = 'stripe' AND status = 'connected'`,
+          [tenantId],
+        );
+        if (!keyResult.rows[0]?.credentials_encrypted) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No Stripe API key connected' }));
+          return;
+        }
+
+        const { decryptCredential } = await import('./crypto-utils.js');
+        let apiKey;
+        try {
+          apiKey = decryptCredential(keyResult.rows[0].credentials_encrypted);
+        } catch (err: any) {
+          log('error', `Stripe backfill blocked: ${err.message}`);
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Stored Stripe credential cannot be decrypted securely' }));
+          return;
+        }
+
+        const leaseResult = await pool.query(
+          `UPDATE tenant_integrations
+           SET metadata = metadata || '{"status": "backfilling"}'::jsonb, updated_at = now()
+           WHERE tenant_id = $1
+             AND service = 'stripe'
+             AND COALESCE(metadata->>'status', '') != 'backfilling'
+           RETURNING id`,
+          [tenantId],
+        );
+        if (leaseResult.rowCount === 0) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Stripe backfill already in progress' }));
+          return;
+        }
+
+        // Fetch and ingest in background — respond immediately
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, status: 'backfill_started' }));
+
+        // Background backfill
+        backfillStripeData(pool, tenantId, apiKey, log).catch((err: any) => {
+          log('error', `Stripe backfill failed for ${tenantId}: ${err.message}`);
+        });
+      } catch (err: any) {
+        log('error', `Stripe backfill error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to start backfill' }));
+      }
+      return;
+    }
+
+    // --- Stripe diagnostic scans ---
+    if (req.method === 'POST' && pathname === '/v1/integrations/stripe/scans') {
+      try {
+        const auth = await requireAuthenticatedTenant(req);
+        if (auth.ok === false) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+        const tenantId = auth.tenantId;
+
+        await pool.query(
+          `UPDATE tenant_stripe_scans
+           SET status = 'failed',
+               error_message = 'Scan timed out before completion',
+               completed_at = now(),
+               updated_at = now()
+           WHERE tenant_id = $1
+             AND status IN ('pending', 'processing')
+             AND started_at < $2::timestamptz`,
+          [tenantId, new Date(Date.now() - ACTIVE_STRIPE_SCAN_TIMEOUT_MS).toISOString()],
+        );
+
+        const activeScanResult = await pool.query(
+          `SELECT scan_id, status
+           FROM tenant_stripe_scans
+           WHERE tenant_id = $1
+             AND status IN ('pending', 'processing')
+           ORDER BY started_at DESC
+           LIMIT 1`,
+          [tenantId],
+        );
+        const activeScan = activeScanResult.rows[0] ?? null;
+        if (activeScan?.scan_id) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'Stripe scan already in progress',
+            scanId: activeScan.scan_id,
+            status: activeScan.status,
+          }));
+          return;
+        }
+
+        const integrationResult = await pool.query(
+          `SELECT credentials_encrypted
+           FROM tenant_integrations
+           WHERE tenant_id = $1 AND service = 'stripe' AND status = 'connected'`,
+          [tenantId],
+        );
+        const encryptedCredential = integrationResult.rows[0]?.credentials_encrypted ?? null;
+        if (!encryptedCredential) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No Stripe API key connected' }));
+          return;
+        }
+
+        const scanId = createStripeScanId();
+        await pool.query(
+          `INSERT INTO tenant_stripe_scans (scan_id, tenant_id, status, lookback_days, started_at, updated_at)
+           VALUES ($1, $2, 'pending', $3, now(), now())`,
+          [scanId, tenantId, DEFAULT_STRIPE_SCAN_LOOKBACK_DAYS],
+        );
+
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ scanId, status: 'pending' }));
+
+        runStripeScan({
+          pool,
+          scanId,
+          tenantId,
+          encryptedCredential,
+          log,
+        }).catch((err: any) => {
+          log('error', `Stripe scan execution failed for ${tenantId}/${scanId}: ${err.message}`);
+        });
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          const auth = await requireAuthenticatedTenant(req);
+          if (auth.ok === false) {
+            res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: auth.message }));
+            return;
+          }
+
+          const activeScanResult = await pool.query(
+            `SELECT scan_id, status
+             FROM tenant_stripe_scans
+             WHERE tenant_id = $1
+               AND status IN ('pending', 'processing')
+             ORDER BY started_at DESC
+             LIMIT 1`,
+            [auth.tenantId],
+          );
+          const activeScan = activeScanResult.rows[0] ?? null;
+          if (activeScan?.scan_id) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Stripe scan already in progress',
+              scanId: activeScan.scan_id,
+              status: activeScan.status,
+            }));
+            return;
+          }
+        }
+        log('error', `Stripe scan start error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to start Stripe scan' }));
+      }
+      return;
+    }
+
+    const stripeScanMatch = pathname.match(/^\/v1\/integrations\/stripe\/scans\/([^/]+)$/);
+    if (req.method === 'GET' && stripeScanMatch) {
+      try {
+        const auth = await requireAuthenticatedTenant(req);
+        if (auth.ok === false) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+        const tenantId = auth.tenantId;
+        const scanId = stripeScanMatch[1];
+
+        const scanResult = await pool.query(
+          `SELECT scan_id, status, lookback_days, started_at, completed_at, error_message, result_payload
+           FROM tenant_stripe_scans
+           WHERE tenant_id = $1 AND scan_id = $2`,
+          [tenantId, scanId],
+        );
+        const scan = scanResult.rows[0] ?? null;
+        if (!scan) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Stripe scan not found' }));
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          scan_id: scan.scan_id,
+          status: scan.status,
+          lookback_days: scan.lookback_days,
+          started_at: scan.started_at,
+          completed_at: scan.completed_at,
+          error_message: scan.error_message,
+          result_payload: scan.result_payload,
+        }));
+      } catch (err: any) {
+        log('error', `Stripe scan read error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to load Stripe scan' }));
+      }
+      return;
     }
 
     // --- Integration routes (Composio) ---
@@ -299,7 +822,7 @@ export function createRequestHandler(deps: RouterDeps) {
     }
 
     if (req.method === 'GET' && pathname === '/v1/integrations/status') {
-      handleIntegrationStatus(req, res);
+      handleIntegrationStatus(req, res, pool);
       return;
     }
 

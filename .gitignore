@@ -69,3 +69,20 @@ demo-agent/.nooterra/*.pid
 # Pilot fixture keypairs / signers (generate locally, never commit)
 scripts/pilot/fixtures/*-keypair.json
 scripts/pilot/fixtures/*-signer.json
+.aidesigner/*
+!.aidesigner/.gitkeep
+
+# Claude Code / AI tool configs (local)
+.claude/
+.mcp.json
+.agents/
+.superpowers/
+.playwright-mcp/
+
+# Screenshots / design artifacts (not source code)
+*.png
+landing-*.png
+demo-*.png
+
+# Temporary scratch files
+-

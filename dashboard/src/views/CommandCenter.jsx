@@ -1,234 +1,246 @@
-/**
- * Command Center — the primary operational view.
- *
- * Not a "dashboard with charts." A live operational view.
- * Three health indicators, curated activity stream, attention queue.
- * Feels like mission control, not a SaaS dashboard.
- */
-
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Activity, TrendingUp, AlertTriangle, Shield, ChevronRight,
-  Clock, DollarSign, Users, FileText, Mail, CheckCircle2,
-  XCircle, Pause, Eye, Zap, BarChart3,
+  Activity, AlertTriangle, Clock, Pause, Shield, TrendingUp, Zap,
 } from 'lucide-react';
-import { getWorldStats, getEvents, getCoverageProposals, getEscrowQueue } from '../lib/world-api.js';
+import { getWorldOverview } from '../lib/world-api.js';
 
-// ---------------------------------------------------------------------------
-// Status Components
-// ---------------------------------------------------------------------------
+function formatMoney(cents) {
+  return `$${(Number(cents || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
 
-function HealthIndicator({ label, status, value, trend, detail }) {
-  const statusColors = {
-    healthy: 'text-status-healthy border-status-healthy/30 bg-status-healthy-muted',
-    attention: 'text-status-attention border-status-attention/30 bg-status-attention-muted',
-    critical: 'text-status-blocked border-status-blocked/30 bg-status-blocked-muted',
-  };
+function formatTime(value) {
+  if (!value) return 'unavailable';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'unavailable';
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
+}
 
-  const dotColors = {
-    healthy: 'bg-status-healthy',
-    attention: 'bg-status-attention',
-    critical: 'bg-status-blocked',
+function HealthIndicator({ label, status, value, detail, trend }) {
+  const styles = {
+    healthy: 'text-status-healthy border-status-healthy/30 bg-status-healthy-muted border-t-status-healthy',
+    attention: 'text-status-attention border-status-attention/30 bg-status-attention-muted border-t-status-attention',
+    critical: 'text-status-blocked border-status-blocked/30 bg-status-blocked-muted border-t-status-blocked',
   };
 
   return (
-    <div className={`p-4 rounded-lg border ${statusColors[status]}`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium uppercase tracking-wider opacity-70">{label}</span>
-        <span className={`inline-flex h-2 w-2 rounded-full ${dotColors[status]}`} />
+    <div className={`p-4 rounded-lg border border-t-2 ${styles[status]}`}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-2xs font-semibold uppercase tracking-widest opacity-60">{label}</span>
+        <span className={`inline-flex h-1.5 w-1.5 rounded-full ${
+          status === 'healthy' ? 'bg-status-healthy' : status === 'attention' ? 'bg-status-attention' : 'bg-status-blocked'
+        }`} />
       </div>
-      <div className="text-2xl font-semibold font-mono">{value}</div>
-      <div className="flex items-center justify-between mt-2">
+      <div className="text-3xl font-semibold font-mono tabular-nums">{value}</div>
+      <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-current/10">
         <span className="text-xs opacity-60">{detail}</span>
-        <span className="text-xs font-medium">{trend}</span>
+        <span className="text-xs font-medium font-mono opacity-80">{trend}</span>
       </div>
     </div>
   );
 }
 
+function ActivityItem({ event, index }) {
+  const isAgent = event.type.startsWith('agent.');
+  const isFinancial = event.type.startsWith('financial.');
 
-function ActivityItem({ type, time, agent, description, status, objectId }) {
-  const icons = {
-    'action.executed': <Zap size={12} className="text-status-healthy" />,
-    'action.blocked': <XCircle size={12} className="text-status-blocked" />,
-    'action.escrowed': <Pause size={12} className="text-status-attention" />,
-    'prediction': <Eye size={12} className="text-status-predicted" />,
-    'autonomy.promoted': <TrendingUp size={12} className="text-status-healthy" />,
-    'autonomy.demoted': <AlertTriangle size={12} className="text-status-blocked" />,
-  };
+  const icon = isAgent
+    ? <Zap size={12} className="text-status-healthy" />
+    : isFinancial
+    ? <TrendingUp size={12} className="text-status-predicted" />
+    : <Activity size={12} className="text-text-tertiary" />;
 
-  const statusBadges = {
-    executed: 'bg-status-healthy-muted text-status-healthy',
-    blocked: 'bg-status-blocked-muted text-status-blocked',
-    escrowed: 'bg-status-attention-muted text-status-attention',
-  };
+  const accentColor = isAgent
+    ? 'border-l-status-healthy'
+    : isFinancial
+    ? 'border-l-status-predicted'
+    : 'border-l-transparent';
+
+  const payload = event.payload || {};
+  const description = payload.workerName
+    ? `${payload.workerName} · ${event.type}`
+    : payload.number
+    ? `${event.type} · ${payload.number}`
+    : event.type;
 
   return (
-    <div className="group flex items-start gap-3 py-2.5 px-3 -mx-3 rounded hover:bg-surface-2 transition-colors cursor-pointer">
-      <div className="flex-shrink-0 mt-1 w-5 h-5 rounded flex items-center justify-center bg-surface-3">
-        {icons[type] || <Activity size={12} className="text-text-tertiary" />}
+    <div className={`flex items-start gap-3 py-2.5 px-3 border-l-2 ${accentColor} ${
+      index % 2 === 0 ? 'bg-surface-1/40' : ''
+    } hover:bg-surface-2 transition-colors`}>
+      <div className="flex-shrink-0 mt-0.5 w-5 h-5 rounded flex items-center justify-center bg-surface-3">
+        {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-text-primary truncate">{description}</span>
-          {status && (
-            <span className={`flex-shrink-0 text-2xs px-1.5 py-0.5 rounded font-medium ${statusBadges[status] || ''}`}>
-              {status}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-2xs text-text-tertiary font-mono">{time}</span>
-          {agent && <span className="text-2xs text-text-tertiary">{agent}</span>}
-          {objectId && (
-            <span className="text-2xs text-accent font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-              {objectId}
-            </span>
-          )}
+        <div className="text-sm text-text-primary truncate">{description}</div>
+        <div className="flex items-center gap-2 mt-0.5 text-2xs text-text-tertiary">
+          <span>{formatTime(event.timestamp)}</span>
+          <span className="font-mono opacity-50">{event.id}</span>
         </div>
       </div>
-      <ChevronRight size={14} className="flex-shrink-0 text-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
     </div>
   );
 }
 
-function AttentionItem({ priority, title, description, action, type }) {
-  const priorityColors = {
-    high: 'border-l-status-blocked',
-    medium: 'border-l-status-attention',
-    low: 'border-l-accent',
-  };
+function AttentionItem({ item }) {
+  const isHigh = item.priority === 'high';
+  const isMedium = item.priority === 'medium';
 
-  const typeIcons = {
-    escrow: <Pause size={14} className="text-status-attention" />,
-    incident: <AlertTriangle size={14} className="text-status-blocked" />,
-    promotion: <TrendingUp size={14} className="text-status-healthy" />,
-    policy: <Shield size={14} className="text-status-predicted" />,
-  };
+  const icon = item.kind === 'escrow'
+    ? <Pause size={14} className="text-status-attention" />
+    : isHigh
+    ? <AlertTriangle size={14} className="text-status-blocked" />
+    : <Shield size={14} className="text-accent" />;
+
+  const borderColor = isHigh
+    ? 'border-l-status-blocked'
+    : isMedium
+    ? 'border-l-status-attention'
+    : 'border-l-accent';
+
+  const bgColor = isHigh
+    ? 'bg-status-blocked-muted/60'
+    : isMedium
+    ? 'bg-status-attention-muted/40'
+    : 'bg-surface-2';
 
   return (
-    <div className={`p-3 rounded-lg bg-surface-2 border border-edge border-l-2 ${priorityColors[priority]} hover:border-edge-strong transition-colors cursor-pointer`}>
+    <div className={`p-3 rounded-lg ${bgColor} border border-edge border-l-[3px] ${borderColor} transition-colors`}>
       <div className="flex items-start gap-2.5">
-        <div className="flex-shrink-0 mt-0.5">
-          {typeIcons[type] || <Activity size={14} className="text-text-secondary" />}
-        </div>
+        <div className="flex-shrink-0 mt-0.5">{icon}</div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-text-primary font-medium">{title}</p>
-          <p className="text-xs text-text-secondary mt-0.5">{description}</p>
-          {action && (
-            <button className="mt-2 text-xs font-medium text-accent hover:text-accent-hover transition-colors">
-              {action} <ChevronRight size={10} className="inline" />
-            </button>
-          )}
+          <p className="text-sm text-text-primary font-medium leading-snug">{item.title}</p>
+          <p className="text-xs text-text-secondary mt-1 leading-relaxed">{item.description || 'No additional detail available.'}</p>
         </div>
+        {isHigh && (
+          <span className="flex-shrink-0 text-2xs font-semibold text-status-blocked uppercase tracking-wider mt-0.5">HIGH</span>
+        )}
       </div>
     </div>
   );
 }
 
-
-// ---------------------------------------------------------------------------
-// Command Center
-// ---------------------------------------------------------------------------
+function EmptyPanel({ title, detail }) {
+  return (
+    <div className="rounded-lg border border-edge bg-surface-1 p-6 text-center">
+      <Clock size={18} className="mx-auto text-text-tertiary mb-2" />
+      <p className="text-sm text-text-primary">{title}</p>
+      <p className="text-xs text-text-secondary mt-1">{detail}</p>
+    </div>
+  );
+}
 
 export default function CommandCenter() {
-  const [liveStats, setLiveStats] = useState(null);
-  const [liveEvents, setLiveEvents] = useState(null);
-  const [liveEscrow, setLiveEscrow] = useState(null);
+  const [overview, setOverview] = useState(null);
+  const [error, setError] = useState('');
 
-  // Fetch real data, fall back to mock if API unavailable
   useEffect(() => {
     let cancelled = false;
-    async function fetchLive() {
+
+    async function load() {
       try {
-        const [stats, events, escrow] = await Promise.all([
-          getWorldStats().catch(() => null),
-          getEvents({ limit: 10 }).catch(() => null),
-          getEscrowQueue().catch(() => null),
-        ]);
+        const next = await getWorldOverview();
         if (!cancelled) {
-          if (stats) setLiveStats(stats);
-          if (events?.events) setLiveEvents(events.events);
-          if (escrow) setLiveEscrow(escrow);
+          setOverview(next);
+          setError('');
         }
-      } catch {}
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load world overview');
+      }
     }
-    fetchLive();
-    const interval = setInterval(fetchLive, 10000); // refresh every 10s
-    return () => { cancelled = true; clearInterval(interval); };
+
+    load();
+    const interval = setInterval(load, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
-  // Mock data — used when API is unavailable
-  const mockActivity = [
-    { type: 'action.executed', time: '2m ago', agent: 'Collections Agent', description: 'Sent friendly reminder to Acme Corp — Invoice #1247 ($4,200)', status: 'executed', objectId: 'inv_01HX...' },
-    { type: 'prediction', time: '5m ago', description: 'Payment probability for Invoice #1189 dropped to 34% — recommending Stage 2 notice', objectId: 'inv_01HW...' },
-    { type: 'action.escrowed', time: '12m ago', agent: 'Collections Agent', description: 'Escalation task for TechVentures Inc — 45 days overdue, dispute detected', status: 'escrowed', objectId: 'inv_01HV...' },
-    { type: 'autonomy.promoted', time: '1h ago', description: 'Collections Agent promoted to auto_with_review for email reminders to known customers (<$5K)', status: 'executed' },
-    { type: 'action.executed', time: '1h ago', agent: 'Collections Agent', description: 'Sent formal notice to CloudStack Ltd — Invoice #1203 ($12,800)', status: 'executed', objectId: 'inv_01HU...' },
-    { type: 'action.blocked', time: '3h ago', agent: 'Collections Agent', description: 'Attempted to send email outside business hours — blocked by time window policy', status: 'blocked' },
-  ];
+  const metrics = useMemo(() => overview?.aggregatePredictions || {
+    totalOutstandingCents: 0,
+    projectedCollection30dCents: 0,
+    atRiskAmountCents: 0,
+    overdueCount: 0,
+  }, [overview]);
 
-  const mockAttention = [
-    { priority: 'high', type: 'escrow', title: 'Escalation pending: TechVentures Inc', description: 'Invoice #1198 — $28,500, 45 days overdue, dispute mentioned in last email. Agent recommends human intervention.', action: 'Review & decide' },
-    { priority: 'medium', type: 'promotion', title: 'Autonomy promotion ready', description: 'Collections Agent has 52 executions at 94% procedural score for email reminders to known customers. Recommend: auto_with_review → autonomous.', action: 'Review evidence' },
-    { priority: 'low', type: 'policy', title: 'Policy gap detected', description: 'No policy covers follow-up cadence for invoices between $5K-$10K. 8 invoices in this range.', action: 'Create policy' },
-  ];
+  const counts = overview?.counts || { totalObjects: 0, totalEvents: 0, escrowedActions: 0 };
+  const coverage = overview?.coverage?.summary || { totalCells: 0, autonomousCells: 0 };
+  const recentActivity = overview?.recentActivity || [];
+  const attention = overview?.topAttention || [];
 
   return (
     <div className="h-full bg-surface-0 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-5 py-6">
-        {/* Health indicators — live data when available, mock otherwise */}
+        {error ? (
+          <div className="mb-6 rounded-lg border border-status-blocked/30 bg-status-blocked-muted px-4 py-3 text-sm text-status-blocked">
+            {error}
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <HealthIndicator
-            label="World Model"
-            status="healthy"
-            value={liveStats ? liveStats.objectCount.toLocaleString() : '847'}
-            detail={liveStats ? `${liveStats.eventCount} events in ledger` : 'Objects tracked across systems'}
-            trend={liveStats ? `${liveStats.coverageCells} coverage cells` : '2,341 events ↑'}
+            label="Event Ledger"
+            status={counts.totalEvents > 0 ? 'healthy' : 'attention'}
+            value={counts.totalEvents.toLocaleString()}
+            detail={`${counts.totalObjects.toLocaleString()} objects projected`}
+            trend={`${coverage.totalCells} autonomy cells`}
           />
           <HealthIndicator
-            label="Agent Performance"
-            status={liveStats?.autonomousCells > 0 ? 'healthy' : 'attention'}
-            value={liveStats ? `${liveStats.totalExecutionsTracked}` : '94.2%'}
-            detail={liveStats ? 'Executions tracked' : 'Procedural score (7d)'}
-            trend={liveStats ? `${liveStats.autonomousCells} autonomous` : '168 actions ↑'}
+            label="Collections Forecast"
+            status={metrics.atRiskAmountCents > 0 ? 'attention' : 'healthy'}
+            value={formatMoney(metrics.projectedCollection30dCents)}
+            detail={`${formatMoney(metrics.totalOutstandingCents)} outstanding`}
+            trend={`${metrics.overdueCount || 0} overdue`}
           />
           <HealthIndicator
-            label="Attention Queue"
-            status={liveEscrow?.length > 0 ? 'attention' : 'healthy'}
-            value={liveEscrow ? String(liveEscrow.length) : '3'}
-            detail={liveEscrow ? 'Actions pending approval' : 'Items awaiting decision'}
-            trend={liveEscrow?.length > 0 ? `${liveEscrow.length} in queue` : '1 high priority'}
+            label="Action Gateway"
+            status={counts.escrowedActions > 0 ? 'attention' : 'healthy'}
+            value={String(counts.escrowedActions || 0)}
+            detail={`${coverage.autonomousCells || 0} autonomous cells`}
+            trend={`${formatMoney(metrics.atRiskAmountCents)} at risk`}
           />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Activity stream */}
           <div className="lg:col-span-3">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-text-primary">Activity</h2>
-              <button className="text-2xs text-text-tertiary hover:text-text-secondary transition-colors">
-                View all
-              </button>
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-edge-subtle">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Event Ledger</h2>
+              <span className="text-2xs text-text-tertiary font-mono">{recentActivity.length} events</span>
             </div>
-            <div className="space-y-0.5">
-              {(liveEvents ?? mockActivity).map((item, i) => (
-                <ActivityItem key={i} {...item} />
-              ))}
-            </div>
+            {recentActivity.length === 0 ? (
+              <EmptyPanel
+                title="No events in the ledger yet"
+                detail="Connect Stripe in setup to start building the world model."
+              />
+            ) : (
+              <div className="rounded-lg border border-edge overflow-hidden">
+                {recentActivity.map((event, index) => <ActivityItem key={event.id} event={event} index={index} />)}
+              </div>
+            )}
           </div>
 
-          {/* Attention queue */}
           <div className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-text-primary">Needs attention</h2>
-              <span className="text-2xs font-mono text-status-attention">{mockAttention.length}</span>
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-edge-subtle">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Attention</h2>
+              {attention.length > 0 && (
+                <span className="text-2xs font-mono font-semibold text-status-attention bg-status-attention/10 px-1.5 py-0.5 rounded">{attention.length}</span>
+              )}
             </div>
-            <div className="space-y-3">
-              {mockAttention.map((item, i) => (
-                <AttentionItem key={i} {...item} />
-              ))}
-            </div>
+            {attention.length === 0 ? (
+              <EmptyPanel
+                title="Nothing is queued"
+                detail="No escrowed actions or high-priority planner recommendations are active."
+              />
+            ) : (
+              <div className="space-y-3">
+                {attention.map((item) => <AttentionItem key={item.id} item={item} />)}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -236,5 +248,4 @@ export default function CommandCenter() {
   );
 }
 
-// Re-export for shell lazy loading
 export { CommandCenter };

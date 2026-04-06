@@ -235,15 +235,42 @@ export function getInitials(email) {
   return email.charAt(0).toUpperCase();
 }
 
+export function normalizeProductTier(tier) {
+  const normalized = String(tier || "").trim().toLowerCase();
+  if (normalized === "starter" || normalized === "builder") return "starter";
+  if (normalized === "growth" || normalized === "pro") return "growth";
+  if (normalized === "finance_ops" || normalized === "finance-ops" || normalized === "financeops" || normalized === "scale") return "finance_ops";
+  if (normalized === "enterprise") return "enterprise";
+  return "sandbox";
+}
+
+export function isTrialTier(tier) {
+  return normalizeProductTier(tier) === "sandbox";
+}
+
+export function nextUpgradeProductTier(tier) {
+  const normalized = normalizeProductTier(tier);
+  if (normalized === "sandbox") return "starter";
+  if (normalized === "starter") return "growth";
+  if (normalized === "growth") return "finance_ops";
+  return "enterprise";
+}
+
 export function tierLabel(tier) {
-  if (tier === "pro") return "Pro";
-  if (tier === "scale") return "Scale";
-  return "Free";
+  const normalized = normalizeProductTier(tier);
+  if (normalized === "starter") return "Starter";
+  if (normalized === "growth") return "Growth";
+  if (normalized === "finance_ops") return "Finance Ops";
+  if (normalized === "enterprise") return "Enterprise";
+  return "Sandbox";
 }
 
 export function tierColor(tier) {
-  if (tier === "pro") return "var(--accent)";
-  if (tier === "scale") return "#5bb98c";
+  const normalized = normalizeProductTier(tier);
+  if (normalized === "starter") return "var(--accent)";
+  if (normalized === "growth") return "#5bb98c";
+  if (normalized === "finance_ops") return "#2b7fff";
+  if (normalized === "enterprise") return "#d4a017";
   return "var(--text-tertiary)";
 }
 

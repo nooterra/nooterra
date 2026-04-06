@@ -1,17 +1,23 @@
 <!DOCTYPE html>
-<html lang="en" class="dark" style="background:#0a0a0f">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0a0a0f" />
-    <title>Nooterra — The Enterprise World Runtime</title>
-    <meta name="description" content="The first executable company. A live model of your business that observes, predicts, and operates — governed, auditable, earning trust with every action." />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Nooterra — AI collections specialist for your finance team</title>
+    <meta
+      name="description"
+      content="Connect Stripe. Get an AI employee that follows up on overdue invoices with evidence-backed judgment, policy guardrails, and a full audit trail."
+    />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://nooterra.ai" />
-    <meta property="og:title" content="Nooterra — The Enterprise World Runtime" />
-    <meta property="og:description" content="The first executable company. A live model of your business that observes, predicts, and operates." />
+    <meta property="og:title" content="Nooterra — AI workers need a world model." />
+    <meta
+      property="og:description"
+      content="Live business state, governed execution, and outcome-linked learning for AI systems. Launch with Stripe collections."
+    />
     <meta property="og:site_name" content="Nooterra" />
     <meta property="og:image" content="https://nooterra.ai/logo.png" />
     <meta property="og:image:width" content="1200" />
@@ -19,26 +25,60 @@
 
     <!-- Twitter / iMessage -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Nooterra — The Enterprise World Runtime" />
-    <meta name="twitter:description" content="The first executable company. Observe. Predict. Operate." />
+    <meta name="twitter:title" content="Nooterra — AI workers need a world model." />
+    <meta
+      name="twitter:description"
+      content="Live business state, governed execution, and outcome-linked learning for AI systems."
+    />
     <meta name="twitter:site" content="@nooterra" />
     <meta name="twitter:image" content="https://nooterra.ai/logo.png" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-    <!-- Geist font family -->
+    <!-- Font families: Geist + Geist Mono + Instrument Serif -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800;0,9..40,900&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=Inter:wght@100;300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Satoshi (landing body font) -->
+    <link rel="preconnect" href="https://api.fontshare.com" />
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet" />
+
+    <!-- Prevent flash of dark background on the light landing page.
+         This script runs synchronously before any React render. -->
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        if (p === '/' || p === '/home') {
+          document.documentElement.style.background = '#ffffff';
+          document.documentElement.style.color = '#0d1c2e';
+          document.documentElement.style.setProperty('--body-bg', '#ffffff');
+        }
+      })();
+    </script>
 
     <style>
-      html, body { margin: 0; background: #0a0a0f; color: #e8e9ed; }
+      html, body { margin: 0; background: var(--body-bg, #0a0a0f); color: #e8e9ed; }
       * { box-sizing: border-box; }
-      ::selection { background: #4f8ff740; color: #e8e9ed; }
+      ::selection { background: rgba(37, 92, 89, 0.18); color: #171411; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #2a2d3d; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #3d4155; }
+
+      /* Accessibility: focus-visible and reduced-motion */
+      *:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
+      *:focus:not(:focus-visible) { outline: none; }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
     </style>
   </head>
   <body class="antialiased">

@@ -858,27 +858,27 @@ function ChangelogPage() {
 
 const PRICING_TIERS = [
   {
-    name: "Free", price: "$0", period: "",
-    description: "See what Nooterra builds for your business. Shadow mode only.",
-    features: ["Agent proposal", "Shadow mode preview", "1 agent", "50 executions/mo", "Gemini Flash model"],
-    cta: "Start free", ctaHref: "/signup", ctaExternal: false, highlighted: false,
+    name: "Sandbox", price: "Trial", period: "",
+    description: "Stripe-first shadow mode. One runtime. No-card trial once activation is reliable.",
+    features: ["World model preview", "Shadow-mode proposals", "1 runtime", "Approval queue", "Policy runtime"],
+    cta: "Start setup", ctaHref: "/setup", ctaExternal: false, highlighted: false,
   },
   {
-    name: "Starter", price: "$29", period: "/mo",
-    description: "Your first governed agents. Real actions, real integrations, real evidence trails.",
-    features: ["3 agents", "500 executions/mo", "Email + calendar integrations", "Approval inbox", "GPT, Gemini, Haiku models", "Activity feed"],
-    cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: false,
+    name: "Starter", price: "$99", period: "/mo",
+    description: "Your first governed Stripe collections runtime with real company state and predictions.",
+    features: ["Stripe world model", "Governed collections", "Approval inbox", "Policy runtime", "Prediction dashboard", "Company state"],
+    cta: "Start setup", ctaHref: "/setup", ctaExternal: false, highlighted: false,
   },
   {
-    name: "Pro", price: "$99", period: "/mo",
-    description: "Run your operations with governed AI agents.",
-    features: ["10 agents", "5,000 executions/mo", "All integrations", "All AI models", "Audit trail export", "Priority support"],
-    cta: "Start free, upgrade later", ctaHref: "/signup", ctaExternal: false, highlighted: true,
+    name: "Growth", price: "$299", period: "/mo",
+    description: "Run a broader finance workflow with more volume, more operators, and more earned autonomy.",
+    features: ["Higher invoice volume", "Slack/email approvals", "Autonomy progression", "Reporting", "Exports", "Priority support"],
+    cta: "Talk to us", ctaHref: "/support", ctaExternal: false, highlighted: true,
   },
   {
-    name: "Scale", price: "$249", period: "/mo",
-    description: "For businesses that run on Nooterra.",
-    features: ["Unlimited agents", "25,000 executions/mo", "All integrations + custom", "All AI models", "SLA guarantee", "Dedicated support"],
+    name: "Finance Ops", price: "$799+", period: "/mo",
+    description: "For finance teams that want governed automation without losing control.",
+    features: ["Multi-user ops", "Audit exports", "Custom policies", "Partner rollout support", "Security review", "Dedicated support"],
     cta: "Contact us", ctaHref: "/support", ctaExternal: false, highlighted: false,
   },
 ];
@@ -890,7 +890,7 @@ function PricingPage() {
         <FadeIn>
           <h1 style={{ fontSize: "var(--text-2xl)", letterSpacing: "-0.03em", fontWeight: 700, color: "var(--text-100)" }}>Pricing</h1>
           <p style={{ marginTop: 20, maxWidth: 520, fontSize: "var(--text-base)", lineHeight: 1.6, color: "var(--text-200)" }}>
-            Preview free. Go live when you're ready.
+            Start with a Stripe-first world model. Expand into governed autonomy once the evidence loop is real.
           </p>
         </FadeIn>
       </section>
@@ -957,7 +957,7 @@ function PricingPage() {
           { q: "What counts as an agent execution?", a: "Each time an agent executes its task — whether triggered by schedule, API call, or manual run — counts as one execution. Failed runs that error before taking action don't count." },
           { q: "Can I change plans later?", a: "Yes. Upgrade or downgrade anytime. When you upgrade, you're charged pro-rata for the remainder of the billing period. Downgrades take effect at the next billing cycle." },
           { q: "What happens when I hit my limits?", a: "Agents pause and you'll get a notification. No surprise charges. You can upgrade your plan or wait for the next cycle." },
-          { q: "Do I need my own API keys?", a: "On the Free tier, yes — you bring your own model API keys. On paid tiers, model access is included in the price." },
+          { q: "Do I need my own API keys?", a: "On the Sandbox trial, yes — you bring your own model API keys. On paid tiers, model access is included in the price." },
           { q: "Is my data used to train models?", a: "No. Your data is never used for model training. See our privacy policy for details." },
         ].map((faq, i) => (
           <InView key={i} delay={0.05 * i}>

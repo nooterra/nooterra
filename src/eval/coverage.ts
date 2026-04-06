@@ -20,6 +20,7 @@ import type { TraceGrade } from './grading.js';
 export type AutonomyLevel = 'forbidden' | 'human_approval' | 'auto_with_review' | 'autonomous';
 
 export interface CoverageCell {
+  tenantId: string;
   agentId: string;
   actionClass: string;
   objectType: string;
@@ -96,15 +97,24 @@ const DEMOTION_THRESHOLDS = {
 export class CoverageMap {
   private cells = new Map<string, CoverageCell>();
 
-  private key(agentId: string, actionClass: string, objectType: string): string {
-    return `${agentId}:${actionClass}:${objectType}`;
+  private key(tenantId: string, agentId: string, actionClass: string, objectType: string): string {
+    return `${tenantId}:${agentId}:${actionClass}:${objectType}`;
+  }
+
+  private sortCells(cells: CoverageCell[]): CoverageCell[] {
+    return [...cells].sort((left, right) =>
+      String(left.agentId).localeCompare(String(right.agentId)) ||
+      String(left.actionClass).localeCompare(String(right.actionClass)) ||
+      String(left.objectType).localeCompare(String(right.objectType)),
+    );
   }
 
   /** Get or create a coverage cell */
-  getCell(agentId: string, actionClass: string, objectType: string): CoverageCell {
-    const k = this.key(agentId, actionClass, objectType);
+  getCell(agentId: string, actionClass: string, objectType: string, tenantId = 'tenant_default'): CoverageCell {
+    const k = this.key(tenantId, agentId, actionClass, objectType);
     if (!this.cells.has(k)) {
       this.cells.set(k, {
+        tenantId,
         agentId,
         actionClass,
         objectType,
@@ -129,8 +139,9 @@ export class CoverageMap {
     actionClass: string,
     objectType: string,
     grade: TraceGrade,
+    tenantId = 'tenant_default',
   ): void {
-    const cell = this.getCell(agentId, actionClass, objectType);
+    const cell = this.getCell(agentId, actionClass, objectType, tenantId);
 
     cell.totalExecutions++;
     if (grade.overallGrade >= 0.7) {
@@ -155,8 +166,8 @@ export class CoverageMap {
   }
 
   /** Record an incident (demotion trigger) */
-  recordIncident(agentId: string, actionClass: string, objectType: string): void {
-    const cell = this.getCell(agentId, actionClass, objectType);
+  recordIncident(agentId: string, actionClass: string, objectType: string, tenantId = 'tenant_default'): void {
+    const cell = this.getCell(agentId, actionClass, objectType, tenantId);
     cell.incidentCount++;
     cell.lastFailureAt = new Date();
     this.updateRecommendation(cell);
@@ -233,18 +244,30 @@ export class CoverageMap {
   }
 
   /** Get all cells for an agent (the full coverage map) */
-  getAgentCoverage(agentId: string): CoverageCell[] {
-    return [...this.cells.values()].filter(c => c.agentId === agentId);
+  getAgentCoverage(agentId: string, tenantId?: string): CoverageCell[] {
+    return this.sortCells(
+      [...this.cells.values()].filter((c) => c.agentId === agentId && (!tenantId || c.tenantId === tenantId)),
+    );
   }
 
   /** Get all cells (full system view) */
-  getAllCoverage(): CoverageCell[] {
-    return [...this.cells.values()];
+  getAllCoverage(tenantId?: string): CoverageCell[] {
+    return this.sortCells([...this.cells.values()].filter((c) => !tenantId || c.tenantId === tenantId));
+  }
+
+  /** Get all cells for a tenant */
+  getTenantCoverage(tenantId: string): CoverageCell[] {
+    return this.getAllCoverage(tenantId);
+  }
+
+  /** Clear all in-memory coverage state. Useful for deterministic tests. */
+  clear(): void {
+    this.cells.clear();
   }
 
   /** Apply a promotion (human-approved level change) */
-  applyPromotion(agentId: string, actionClass: string, objectType: string, newLevel: AutonomyLevel): void {
-    const cell = this.getCell(agentId, actionClass, objectType);
+  applyPromotion(agentId: string, actionClass: string, objectType: string, newLevel: AutonomyLevel, tenantId = 'tenant_default'): void {
+    const cell = this.getCell(agentId, actionClass, objectType, tenantId);
     cell.currentLevel = newLevel;
     this.updateRecommendation(cell);
   }
@@ -259,9 +282,17 @@ export class CoverageMap {
  * Returns proposals where recommendedLevel differs from currentLevel.
  */
 export function generateProposals(coverageMap: CoverageMap): AuthorityProposal[] {
+  return generateProposalsFromCells(coverageMap.getAllCoverage());
+}
+
+export function generateTenantProposals(coverageMap: CoverageMap, tenantId: string): AuthorityProposal[] {
+  return generateProposalsFromCells(coverageMap.getTenantCoverage(tenantId));
+}
+
+export function generateProposalsFromCells(cells: CoverageCell[]): AuthorityProposal[] {
   const proposals: AuthorityProposal[] = [];
 
-  for (const cell of coverageMap.getAllCoverage()) {
+  for (const cell of cells) {
     if (cell.recommendedLevel === cell.currentLevel) continue;
     if (cell.evidenceStrength < 0.5) continue; // Not enough evidence to propose
 

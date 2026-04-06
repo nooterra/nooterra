@@ -790,6 +790,16 @@ export async function upsertApprovalPolicy(runtime, policy) {
   });
 }
 
+export async function fetchBillingStatus(runtime) {
+  const resolvedRuntime = resolveRuntimeConfig(runtime);
+  return requestJson({
+    baseUrl: resolvedRuntime.baseUrl,
+    pathname: "/v1/billing/status",
+    method: "GET",
+    headers: buildHeaders(resolvedRuntime)
+  });
+}
+
 export async function fetchTenantSettings(runtime) {
   const resolvedRuntime = resolveAndValidateRuntime(runtime);
   return requestJson({

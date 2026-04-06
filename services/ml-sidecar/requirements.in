@@ -1,0 +1,33 @@
+# ML Sidecar dependencies — source file.
+# Edit this file, then run: pip-compile requirements.in -o requirements.txt
+# Or manually pin versions in requirements.txt after testing.
+
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Database
+asyncpg
+
+# ML / Numerics
+numpy
+scikit-learn
+catboost
+shap
+lifelines
+
+# Calibration / Conformal
+mapie
+
+# Online learning / Drift detection
+river
+
+# Data validation
+pydantic
+
+# HTTP client (for health checks, sidecar-to-sidecar)
+httpx
+
+# Testing
+pytest
+pytest-asyncio

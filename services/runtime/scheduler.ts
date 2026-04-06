@@ -6,6 +6,12 @@
 import type pg from 'pg';
 import { parseCron, cronMatchesDate, extractCronExpr } from './cron.js';
 import { pollApprovedActions } from './approval-resume.js';
+import {
+  listTenantsWithDueActionOutcomes,
+  runActionOutcomeWatcher,
+} from '../../src/eval/effect-tracker.ts';
+import { runWeeklyRetraining } from './retraining-job.ts';
+import { runCollectionsCycle } from './collections-cycle.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +28,81 @@ export interface SchedulerDeps {
   executeWorker: (worker: any, executionId: string, triggerType: string, resumeContext?: any) => Promise<void>;
   generateId: (prefix?: string) => string;
   isShuttingDown: () => boolean;
+}
+
+export async function pollWorldOutcomeWatchers(deps: SchedulerDeps) {
+  const { pool, log } = deps;
+  const asOf = new Date();
+  const tenantIds = await listTenantsWithDueActionOutcomes(pool, asOf, 10);
+  let processed = 0;
+
+  for (const tenantId of tenantIds) {
+    try {
+      const result = await runActionOutcomeWatcher(pool, {
+        tenantId,
+        asOf,
+        limit: 25,
+      });
+      processed += result.processed.length;
+    } catch (err: any) {
+      log('error', `Outcome watcher poll failed for tenant ${tenantId}: ${err.message}`);
+    }
+  }
+
+  if (processed > 0) {
+    log('info', `Observed ${processed} pending world-action outcome(s)`);
+  }
+}
+
+export async function pollWeeklyRetraining(deps: SchedulerDeps): Promise<void> {
+  const { pool, log } = deps;
+
+  // Get all tenants with observed outcomes (candidates for retraining)
+  const tenants = await pool.query(`
+    SELECT DISTINCT tenant_id FROM world_action_outcomes
+    WHERE observation_status = 'observed'
+    LIMIT 50
+  `);
+
+  for (const row of tenants.rows) {
+    const tenantId = String(row.tenant_id);
+    try {
+      const result = await runWeeklyRetraining(pool, tenantId);
+      if (result.skipped) {
+        // Idempotent: already retrained recently, no log spam
+      } else {
+        log('info', `Retrained for ${tenantId}: prob=${result.probabilityModel.status}, uplift=${result.upliftModel.status}, graded=${result.gradedOutcomesExported}`);
+      }
+    } catch (err: any) {
+      log('error', `Retraining failed for ${tenantId}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Run the autonomous collections cycle for all active tenants.
+ * Triggered every 4 hours by the poll loop (configurable per worker schedule).
+ */
+export async function pollCollectionsCycles(deps: SchedulerDeps): Promise<void> {
+  const { pool, log } = deps;
+
+  // Find tenants with active collections workers
+  const tenants = await pool.query(`
+    SELECT DISTINCT tenant_id FROM workers
+    WHERE status = 'ready'
+      AND charter->>'runtimeKind' = 'collections'
+    LIMIT 50
+  `);
+
+  for (const row of tenants.rows) {
+    const tenantId = String(row.tenant_id);
+    try {
+      const result = await runCollectionsCycle(pool, tenantId);
+      log('info', `Collections cycle for ${tenantId}: ${result.actionsAutoExecuted} auto, ${result.actionsEscrowed} escrowed, epochs=${result.epochsCreated}/${result.epochsResolved}`);
+    } catch (err: any) {
+      log('error', `Collections cycle failed for ${tenantId}: ${err.message}`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +257,25 @@ export async function pollCycle(deps: SchedulerDeps): Promise<void> {
   }
 
   try {
+    try {
+      await pollWorldOutcomeWatchers(deps);
+    } catch (watchErr: any) {
+      log('warn', `World outcome watcher poll failed: ${watchErr.message}`);
+    }
+
+    try {
+      await pollWeeklyRetraining(deps);
+    } catch (retrainErr: any) {
+      log('warn', `Weekly retraining poll failed: ${retrainErr.message}`);
+    }
+
+    // Run autonomous collections cycles for active tenants
+    try {
+      await pollCollectionsCycles(deps);
+    } catch (cycleErr: any) {
+      log('warn', `Collections cycle poll failed: ${cycleErr.message}`);
+    }
+
     const available = maxConcurrent - getActiveExecutions();
     if (available <= 0) return;
 
@@ -271,16 +371,35 @@ export async function pollCycle(deps: SchedulerDeps): Promise<void> {
 // Scheduler lifecycle
 // ---------------------------------------------------------------------------
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollRunning = false;
 
 export function startScheduler(deps: SchedulerDeps, intervalMs: number): void {
-  pollTimer = setInterval(() => pollCycle(deps), intervalMs);
+  // Self-rescheduling loop prevents overlapping poll cycles.
+  // setInterval doesn't await async functions — two cycles can run concurrently.
+  // setTimeout after completion guarantees serial execution.
+  async function loop() {
+    if (deps.isShuttingDown()) return;
+    if (pollRunning) return;
+    pollRunning = true;
+    try {
+      await pollCycle(deps);
+    } catch (err: any) {
+      deps.log('error', `Poll cycle error: ${err?.message}`);
+    } finally {
+      pollRunning = false;
+    }
+    if (!deps.isShuttingDown()) {
+      pollTimer = setTimeout(loop, intervalMs);
+    }
+  }
+  pollTimer = setTimeout(loop, 100);
   deps.log('info', `Poll loop started (every ${intervalMs}ms, max ${deps.maxConcurrent} concurrent)`);
 }
 
 export function stopScheduler(): void {
   if (pollTimer) {
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     pollTimer = null;
   }
 }

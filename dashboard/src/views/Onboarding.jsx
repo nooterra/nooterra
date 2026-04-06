@@ -1,17 +1,17 @@
 /**
- * Collections Demo Onboarding — connect Stripe + Gmail, see your business model, launch agent.
+ * World Runtime Onboarding — connect Stripe, materialize company state, launch governed operation.
  *
  * Step 1: Connect Stripe (OAuth) — see invoices + customers flow in
- * Step 2: Connect Gmail (OAuth) — see conversations linked to customers
- * Step 3: Review your company model — verify entity resolution
- * Step 4: Launch collections agent in shadow mode
+ * Step 2: Wait for the event ledger and object graph to materialize
+ * Step 3: Review your company state — verify projections
+ * Step 4: Launch collections in shadow mode
  *
  * This is the "first 30 minutes" experience from the Production Bible.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  CreditCard, Mail, Check, ChevronRight, Loader2,
+  CreditCard, Check, ChevronRight, Loader2,
   Users, FileText, MessageSquare, Activity, Shield,
   Zap, Eye, AlertTriangle, ArrowRight, RefreshCw,
 } from 'lucide-react';
@@ -24,9 +24,24 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 async function apiGet(path, tenantId) {
   const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     headers: { 'x-tenant-id': tenantId, 'Content-Type': 'application/json' },
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+async function apiPost(path, tenantId, body = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'x-tenant-id': tenantId, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: `API error: ${res.status}` }));
+    throw new Error(error.error || `API error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -91,16 +106,21 @@ function ConnectButton({ name, icon: Icon, connected, connecting, onConnect, des
   );
 }
 
-function SyncProgress({ syncing, counts }) {
-  if (!syncing && counts.total === 0) return null;
+function SyncProgress({ syncing, counts, stalled }) {
+  if (!syncing && counts.total === 0 && !stalled) return null;
 
   return (
     <div className="mt-4 p-4 rounded-lg border border-edge bg-surface-1 animate-fade-in">
       <div className="flex items-center gap-2 mb-3">
-        {syncing ? (
+        {syncing && !stalled ? (
           <>
             <RefreshCw size={14} className="text-accent animate-spin" />
-            <span className="text-xs font-medium text-text-primary">Syncing your data...</span>
+            <span className="text-xs font-medium text-text-primary">Syncing your Stripe data...</span>
+          </>
+        ) : stalled ? (
+          <>
+            <AlertTriangle size={14} className="text-status-attention" />
+            <span className="text-xs font-medium text-status-attention">Sync may have stalled. Try refreshing.</span>
           </>
         ) : (
           <>
@@ -109,24 +129,26 @@ function SyncProgress({ syncing, counts }) {
           </>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="text-center">
-          <Users size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.customers}</span>
-          <p className="text-2xs text-text-tertiary">Customers</p>
+      {counts.total > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="text-center">
+            <Users size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.customers}</span>
+            <p className="text-2xs text-text-tertiary">Companies</p>
+          </div>
+          <div className="text-center">
+            <FileText size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.invoices}</span>
+            <p className="text-2xs text-text-tertiary">Invoices</p>
+          </div>
+          <div className="text-center">
+            <CreditCard size={14} className="mx-auto text-text-tertiary mb-1" />
+            <span className="text-lg font-mono font-semibold text-text-primary">{counts.payments}</span>
+            <p className="text-2xs text-text-tertiary">Payments</p>
+          </div>
         </div>
-        <div className="text-center">
-          <FileText size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.invoices}</span>
-          <p className="text-2xs text-text-tertiary">Invoices</p>
-        </div>
-        <div className="text-center">
-          <MessageSquare size={14} className="mx-auto text-text-tertiary mb-1" />
-          <span className="text-lg font-mono font-semibold text-text-primary">{counts.conversations}</span>
-          <p className="text-2xs text-text-tertiary">Conversations</p>
-        </div>
-      </div>
-      {syncing && (
+      )}
+      {syncing && !stalled && (
         <div className="mt-3 h-1 bg-surface-3 rounded-full overflow-hidden">
           <div className="h-full bg-accent rounded-full animate-pulse" style={{ width: '60%' }} />
         </div>
@@ -141,11 +163,19 @@ function SyncProgress({ syncing, counts }) {
 
 function StepConnect({ tenantId, onComplete }) {
   const [stripeConnected, setStripeConnected] = useState(false);
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [stripeConnecting, setStripeConnecting] = useState(false);
-  const [gmailConnecting, setGmailConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncCounts, setSyncCounts] = useState({ total: 0, customers: 0, invoices: 0, conversations: 0 });
+  const [syncCounts, setSyncCounts] = useState({ total: 0, customers: 0, invoices: 0, payments: 0 });
+  const [syncStalled, setSyncStalled] = useState(false);
+
+  // API key input state
+  const [apiKey, setApiKey] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Gmail state
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailError, setGmailError] = useState(null);
 
   // Check existing connections on mount
   useEffect(() => {
@@ -159,88 +189,261 @@ function StepConnect({ tenantId, onComplete }) {
   useEffect(() => {
     if (!stripeConnected) return;
     setSyncing(true);
+    setSyncStalled(false);
+    let consecutiveErrors = 0;
 
     const interval = setInterval(async () => {
       try {
         const stats = await apiGet('/v1/world/stats', tenantId);
+        consecutiveErrors = 0;
+        const countsByType = stats.countsByObjectType || {};
         setSyncCounts({
           total: stats.objectCount || 0,
-          customers: 0, // would need type-specific counts
-          invoices: 0,
-          conversations: 0,
+          customers: countsByType.party || 0,
+          invoices: countsByType.invoice || 0,
+          payments: countsByType.payment || 0,
         });
-        // Simple: use total object count
-        const total = stats.objectCount || 0;
-        setSyncCounts({
-          total,
-          customers: Math.floor(total * 0.3),
-          invoices: Math.floor(total * 0.5),
-          conversations: Math.floor(total * 0.2),
-        });
-        if (total > 0) setSyncing(false);
-      } catch {}
+        if ((stats.objectCount || 0) > 0) setSyncing(false);
+      } catch {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) setSyncStalled(true);
+      }
     }, 3000);
 
     return () => clearInterval(interval);
   }, [stripeConnected, tenantId]);
 
-  function handleOAuth(toolkit, setConnecting, setConnected) {
+  async function handleConnect() {
+    if (!apiKey.startsWith('sk_')) {
+      setError('Key must start with sk_live_ or sk_test_');
+      return;
+    }
     setConnecting(true);
-    // Open OAuth popup
-    const width = 600, height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    const popup = window.open(
-      `${API_BASE}/v1/integrations/${toolkit}/authorize?tenantId=${tenantId}`,
-      `connect_${toolkit}`,
-      `width=${width},height=${height},left=${left},top=${top}`,
-    );
+    setError(null);
 
-    // Poll for popup close
-    const checkClosed = setInterval(() => {
-      if (!popup || popup.closed) {
-        clearInterval(checkClosed);
-        setConnecting(false);
-        // Check if it actually connected
-        apiGet('/v1/integrations/status', tenantId).then(data => {
-          if (data.integrations?.[toolkit]?.connected) {
-            setConnected(true);
-          }
-        }).catch(() => {});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 15000);
+
+    try {
+      const res = await fetch(`${API_BASE}/v1/integrations/stripe/key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+        credentials: 'include',
+        body: JSON.stringify({ apiKey }),
+        signal: controller.signal,
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStripeConnected(true);
+        // Trigger historical data backfill in background
+        fetch(`${API_BASE}/v1/integrations/stripe/backfill`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId },
+          credentials: 'include',
+        }).catch(() => {}); // Fire-and-forget, sync progress polling handles UI
+      } else {
+        setError(data.error || 'Connection failed. Check your API key.');
       }
-    }, 500);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setError('Request timed out after 15 seconds. Check your connection and try again.');
+      } else {
+        setError('Network error. Check your connection and try again.');
+      }
+    } finally {
+      clearTimeout(timeout);
+      setConnecting(false);
+    }
   }
 
-  const allConnected = stripeConnected; // Gmail is optional for MVP
+  async function handleGmailConnect() {
+    setGmailError(null);
+    setGmailConnecting(true);
+
+    const oauthUrl = `${API_BASE}/v1/integrations/gmail/authorize?tenantId=${encodeURIComponent(tenantId)}`;
+    let popup;
+    try {
+      popup = window.open(oauthUrl, 'nooterra_oauth', 'width=520,height=700,popup=yes');
+    } catch {
+      popup = null;
+    }
+
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      setGmailError('Popup was blocked. Please allow popups for this site and try again.');
+      setGmailConnecting(false);
+      return;
+    }
+
+    // Wait for OAuth result via message event, timeout after 30s
+    const resultPromise = new Promise((resolve, reject) => {
+      const onMessage = (e) => {
+        if (e.data?.type === 'nooterra_oauth_success' && e.data?.provider === 'gmail') {
+          window.removeEventListener('message', onMessage);
+          resolve(true);
+        } else if (e.data?.type === 'nooterra_oauth_error' && e.data?.provider === 'gmail') {
+          window.removeEventListener('message', onMessage);
+          reject(new Error(e.data.error || 'Gmail authorization failed'));
+        }
+      };
+      window.addEventListener('message', onMessage);
+
+      // Poll for popup close as fallback
+      const pollClosed = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(pollClosed);
+          window.removeEventListener('message', onMessage);
+          // Check connection status to see if it succeeded anyway
+          apiGet('/v1/integrations/status', tenantId)
+            .then(data => {
+              if (data.integrations?.gmail?.connected) resolve(true);
+              else reject(new Error('Gmail authorization was not completed'));
+            })
+            .catch(() => reject(new Error('Gmail authorization was not completed')));
+        }
+      }, 500);
+
+      setTimeout(() => {
+        clearInterval(pollClosed);
+        window.removeEventListener('message', onMessage);
+        if (!popup.closed) popup.close();
+        reject(new Error('Gmail connection timed out after 30 seconds. Try again.'));
+      }, 30000);
+    });
+
+    try {
+      await resultPromise;
+      setGmailConnected(true);
+    } catch (err) {
+      setGmailError(err.message || 'Gmail connection failed');
+    } finally {
+      setGmailConnecting(false);
+    }
+  }
+
+  const allConnected = stripeConnected;
 
   return (
     <div>
       <h2 className="text-xl font-semibold text-text-primary mb-2">Connect your data sources</h2>
       <p className="text-sm text-text-secondary mb-6">
-        We'll build a live model of your business from your existing tools.
-        Your data stays in your systems — we observe, we don't copy.
+        This first milestone is Stripe-first. We build the event ledger, object graph,
+        and initial predictions from Stripe before adding conversation sources.
       </p>
 
       <div className="space-y-3">
-        <ConnectButton
-          name="Stripe"
-          icon={CreditCard}
-          connected={stripeConnected}
-          connecting={stripeConnecting}
-          onConnect={() => handleOAuth('stripe', setStripeConnecting, setStripeConnected)}
-          description="Invoices, payments, customers, disputes"
-        />
-        <ConnectButton
-          name="Gmail"
-          icon={Mail}
-          connected={gmailConnected}
-          connecting={gmailConnecting}
-          onConnect={() => handleOAuth('gmail', setGmailConnecting, setGmailConnected)}
-          description="Customer conversations, payment follow-ups"
-        />
+        {stripeConnected ? (
+          <>
+            <div className="flex items-center gap-4 p-4 rounded-lg border border-status-healthy/30 bg-status-healthy-muted">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-status-healthy/20">
+                <Check size={18} className="text-status-healthy" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-text-primary">Stripe</span>
+                  <span className="text-2xs text-status-healthy font-medium">Connected</span>
+                </div>
+                <p className="text-xs text-text-secondary mt-0.5">Invoices, payments, customers, disputes</p>
+              </div>
+            </div>
+
+            <div className="bg-surface-1 border border-edge rounded-lg p-4 mt-4">
+              <p className="text-sm font-medium text-text-primary mb-1">Recommended: Connect your email</p>
+              <p className="text-2xs text-text-tertiary mb-3">
+                Collection emails will be sent from your own email address for better deliverability.
+                Without this, emails are sent from nooterra.ai and may go to spam.
+              </p>
+              {gmailConnected ? (
+                <div className="flex items-center gap-2 text-xs text-status-healthy">
+                  <Check size={12} />
+                  <span>Gmail connected</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={handleGmailConnect}
+                    disabled={gmailConnecting}
+                    className="px-3 py-1.5 bg-surface-2 border border-edge rounded text-xs font-medium text-text-secondary hover:bg-surface-3 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {gmailConnecting && <Loader2 size={11} className="animate-spin" />}
+                    {gmailConnecting ? 'Connecting...' : 'Connect Gmail'}
+                  </button>
+                  {gmailError && (
+                    <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2 mt-2">
+                      <span className="shrink-0 mt-0.5">!</span>
+                      <div>
+                        <p>{gmailError}</p>
+                        <button
+                          onClick={handleGmailConnect}
+                          className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="p-4 rounded-lg border border-edge bg-surface-2 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-surface-3">
+                <CreditCard size={18} className="text-text-secondary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-text-primary">Stripe</p>
+                <p className="text-xs text-text-secondary">Invoices, payments, customers, disputes</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-text-secondary">Stripe Secret Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk_live_..."
+                className="w-full bg-surface-1 border border-edge rounded-lg px-3 py-2 text-sm font-mono text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+              <p className="text-2xs text-text-tertiary">
+                Find this in your Stripe Dashboard &rarr; Developers &rarr; API keys. We encrypt and store it securely.
+              </p>
+              {error && (
+                <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">!</span>
+                  <div>
+                    <p>{error}</p>
+                    <button
+                      onClick={handleConnect}
+                      className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={handleConnect}
+                disabled={connecting || !apiKey}
+                className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors"
+              >
+                {connecting ? 'Validating...' : 'Connect Stripe'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-dashed border-edge bg-surface-1 px-4 py-3">
+          <p className="text-xs font-medium text-text-primary">Next source: conversations</p>
+          <p className="mt-1 text-xs text-text-secondary">
+            Gmail and other conversation systems stay hidden until they materialize into the world model.
+          </p>
+        </div>
       </div>
 
-      <SyncProgress syncing={syncing} counts={syncCounts} />
+      <SyncProgress syncing={syncing} counts={syncCounts} stalled={syncStalled} />
 
       <button
         onClick={onComplete}
@@ -250,7 +453,7 @@ function StepConnect({ tenantId, onComplete }) {
             ? 'bg-accent hover:bg-accent-hover text-white'
             : 'bg-surface-3 text-text-tertiary cursor-not-allowed'}`}
       >
-        Review your company model <ArrowRight size={14} />
+        Review company state <ArrowRight size={14} />
       </button>
     </div>
   );
@@ -276,10 +479,10 @@ function StepReview({ tenantId, onComplete }) {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-text-primary mb-2">Your company model</h2>
+      <h2 className="text-xl font-semibold text-text-primary mb-2">Your company state</h2>
       <p className="text-sm text-text-secondary mb-6">
-        Here's what we see. Every customer, invoice, and conversation — linked and versioned.
-        Flag anything that looks wrong.
+        Here is the current company state projected from Stripe. This milestone does not yet claim
+        cross-source conversation linking, so only live Stripe-derived objects should appear.
       </p>
 
       {loading ? (
@@ -325,7 +528,7 @@ function StepReview({ tenantId, onComplete }) {
         onClick={onComplete}
         className="mt-6 w-full py-3 rounded-lg text-sm font-medium bg-accent hover:bg-accent-hover text-white transition-all flex items-center justify-center gap-2"
       >
-        Set up collections agent <ArrowRight size={14} />
+        Enter governed shadow mode <ArrowRight size={14} />
       </button>
     </div>
   );
@@ -334,35 +537,52 @@ function StepReview({ tenantId, onComplete }) {
 function StepLaunch({ tenantId, onComplete }) {
   const [launching, setLaunching] = useState(false);
   const [launched, setLaunched] = useState(false);
+  const [launchError, setLaunchError] = useState('');
 
   async function handleLaunch() {
     setLaunching(true);
-    // In production: create the collections agent worker via /v1/workers API
-    // with the ar-collections template authority grant
-    await new Promise(r => setTimeout(r, 2000));
-    setLaunched(true);
-    setLaunching(false);
+    setLaunchError('');
+    try {
+      const result = await apiPost('/v1/world/runtimes/ar-collections', tenantId, {
+        name: 'AR Collections Runtime',
+      });
+      try {
+        const existing = JSON.parse(localStorage.getItem('nooterra_product_runtime_v1') || '{}');
+        localStorage.setItem('nooterra_product_runtime_v1', JSON.stringify({
+          ...existing,
+          tenantId,
+          workerId: result?.runtime?.workerId || null,
+          executionId: result?.runtime?.executionId || null,
+          runtimeTemplateId: result?.runtime?.templateId || 'ar-collections-v1',
+        }));
+      } catch {}
+      setLaunched(true);
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : 'Failed to launch the collections runtime');
+    } finally {
+      setLaunching(false);
+    }
   }
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-text-primary mb-2">Launch your collections agent</h2>
+      <h2 className="text-xl font-semibold text-text-primary mb-2">Launch governed collections</h2>
       <p className="text-sm text-text-secondary mb-6">
-        The agent starts in shadow mode — it proposes actions but doesn't execute them.
-        You'll review every action in the approval queue. When you're comfortable, promote it.
+        The runtime starts in shadow mode — it proposes actions but doesn't execute them.
+        You'll review every action in the gateway queue. When you're comfortable, promote it.
       </p>
 
-      {/* Agent config preview */}
+      {/* Runtime config preview */}
       <div className="p-4 rounded-lg border border-edge bg-surface-1 mb-4">
         <div className="flex items-center gap-2 mb-3">
           <Zap size={14} className="text-accent" />
-          <span className="text-sm font-medium text-text-primary">Collections Agent</span>
+          <span className="text-sm font-medium text-text-primary">Collections runtime</span>
           <span className="text-2xs px-1.5 py-0.5 rounded bg-status-attention-muted text-status-attention">Shadow mode</span>
         </div>
         <div className="space-y-2 text-xs text-text-secondary">
           <div className="flex items-center gap-2">
             <Check size={10} className="text-status-healthy" />
-            <span>Send reminder emails to known customers (invoices &lt; $50K)</span>
+            <span>Queue reminder actions for known customer contacts (invoices &lt; $50K)</span>
           </div>
           <div className="flex items-center gap-2">
             <Check size={10} className="text-status-healthy" />
@@ -398,8 +618,8 @@ function StepLaunch({ tenantId, onComplete }) {
           <div className="w-12 h-12 rounded-full bg-status-healthy/20 flex items-center justify-center mx-auto mb-3">
             <Check size={20} className="text-status-healthy" />
           </div>
-          <p className="text-sm font-medium text-text-primary">Agent launched in shadow mode</p>
-          <p className="text-xs text-text-secondary mt-1">Check the approval queue to see its first proposals.</p>
+          <p className="text-sm font-medium text-text-primary">Collections runtime launched in shadow mode</p>
+          <p className="text-xs text-text-secondary mt-1">Check the action gateway queue to see its first proposals.</p>
           <button
             onClick={onComplete}
             className="mt-4 inline-flex items-center gap-2 text-sm text-accent hover:text-accent-hover font-medium"
@@ -408,21 +628,37 @@ function StepLaunch({ tenantId, onComplete }) {
           </button>
         </div>
       ) : (
-        <button
-          onClick={handleLaunch}
-          disabled={launching}
-          className="w-full py-3 rounded-lg text-sm font-medium bg-accent hover:bg-accent-hover text-white transition-all flex items-center justify-center gap-2"
-        >
-          {launching ? (
-            <>
-              <Loader2 size={14} className="animate-spin" /> Launching...
-            </>
-          ) : (
-            <>
-              Launch in shadow mode <Zap size={14} />
-            </>
+        <>
+          {launchError && (
+            <div className="bg-status-blocked-muted border border-status-blocked/20 rounded-lg p-3 text-sm text-status-blocked flex items-start gap-2 mb-4">
+              <span className="shrink-0 mt-0.5">!</span>
+              <div>
+                <p>{launchError}</p>
+                <button
+                  onClick={handleLaunch}
+                  className="text-xs underline mt-1 text-text-secondary hover:text-text-primary"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
           )}
-        </button>
+          <button
+            onClick={handleLaunch}
+            disabled={launching}
+            className="w-full py-3 rounded-lg text-sm font-medium bg-accent hover:bg-accent-hover text-white transition-all flex items-center justify-center gap-2"
+          >
+            {launching ? (
+              <>
+                <Loader2 size={14} className="animate-spin" /> Launching...
+              </>
+            ) : (
+              <>
+                Launch shadow mode <Zap size={14} />
+              </>
+            )}
+          </button>
+        </>
       )}
     </div>
   );
@@ -444,7 +680,7 @@ export default function Onboarding() {
     }
   });
 
-  const steps = ['Connect data', 'Review model', 'Launch agent'];
+  const steps = ['Connect Stripe', 'Review state', 'Launch runtime'];
 
   function handleComplete() {
     // Navigate to command center

@@ -16,6 +16,8 @@ import { processEvents } from './state/estimator.js';
 import { gradeTrace, type ExecutionTrace } from './eval/grading.js';
 import { CoverageMap, generateProposals } from './eval/coverage.js';
 import { createTraceId } from './core/trace.js';
+import { recordCoverageObservation } from './eval/autonomy-enforcer.js';
+import { withLogContext } from '../services/runtime/lib/log.js';
 
 // ---------------------------------------------------------------------------
 // Singleton coverage map (in-memory, persisted to DB periodically)
@@ -50,6 +52,7 @@ export async function onExecutionComplete(
 ): Promise<void> {
   const traceId = createTraceId();
 
+  return withLogContext({ traceId, tenantId: execution.tenantId }, async () => {
   try {
     // 1. Write execution event to the ledger
     const eventType = execution.status === 'completed'
@@ -169,7 +172,15 @@ export async function onExecutionComplete(
         tc.actionClass,
         tc.targetObjectType || 'unknown',
         grade,
+        execution.tenantId,
       );
+      await recordCoverageObservation(pool, {
+        tenantId: execution.tenantId,
+        agentId: execution.workerId,
+        actionClass: tc.actionClass,
+        objectType: tc.targetObjectType || 'unknown',
+        grade,
+      });
     }
 
   } catch (err) {
@@ -177,6 +188,7 @@ export async function onExecutionComplete(
     // Log and continue
     console.error(`[bridge] Error processing execution ${execution.executionId}: ${(err as Error).message}`);
   }
+  }); // end withLogContext
 }
 
 /**
@@ -189,31 +201,34 @@ export async function onStripeWebhook(
   stripeEvent: unknown,
 ): Promise<{ eventCount: number; objectCount: number }> {
   const traceId = createTraceId();
-  const { handleStripeWebhook } = await import('./observation/connectors/stripe.js');
-  const { applyConnectorResult } = await import('./observation/connector.js');
 
-  const result = await handleStripeWebhook(
-    stripeEvent,
-    { tenantId, connectorId: 'stripe' },
-    traceId,
-  );
+  return withLogContext({ traceId, tenantId }, async () => {
+    const { handleStripeWebhook } = await import('./observation/connectors/stripe.js');
+    const { applyConnectorResult } = await import('./observation/connector.js');
 
-  // Inject traceId into all events
-  for (const evt of result.events) {
-    evt.traceId = traceId;
-  }
+    const result = await handleStripeWebhook(
+      stripeEvent,
+      { tenantId, connectorId: 'stripe' },
+      traceId,
+    );
 
-  const applied = await applyConnectorResult(pool, result);
+    // Inject traceId into all events
+    for (const evt of result.events) {
+      evt.traceId = traceId;
+    }
 
-  // Run state estimator on the new events
-  const events = await import('./ledger/event-store.js').then(m =>
-    m.queryEvents(pool, { tenantId, traceId, limit: 50 })
-  );
-  if (events.length > 0) {
-    await processEvents(pool, events);
-  }
+    const applied = await applyConnectorResult(pool, result);
 
-  return { eventCount: applied.eventCount, objectCount: applied.objectCount };
+    // Run state estimator on the new events
+    const events = await import('./ledger/event-store.js').then(m =>
+      m.queryEvents(pool, { tenantId, traceId, limit: 50 })
+    );
+    if (events.length > 0) {
+      await processEvents(pool, events);
+    }
+
+    return { eventCount: applied.eventCount, objectCount: applied.objectCount };
+  });
 }
 
 // ---------------------------------------------------------------------------

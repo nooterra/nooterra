@@ -44,10 +44,17 @@ export function createCollectionsAgent(tenantId: string, agentId: string): Agent
 // Authority grant
 // ---------------------------------------------------------------------------
 
+export interface GrantBoundaryOverrides {
+  maxAutonomousAmountCents?: number;
+  maxContactsPerDay?: number;
+  maxContactsPerHour?: number;
+}
+
 export function createCollectionsGrant(
   tenantId: string,
   grantorId: string,
   granteeId: string,
+  overrides: GrantBoundaryOverrides = {},
 ): CreateGrantInput {
   const scope: GrantScope = {
     actionClasses: [
@@ -60,7 +67,7 @@ export function createCollectionsGrant(
     objectTypes: ['invoice', 'party', 'payment', 'conversation', 'obligation'],
     objectFilter: {
       // Only invoices under $50,000
-      amountCents: { lt: 5000000 },
+      amountCents: { lt: overrides.maxAutonomousAmountCents ?? 5000000 },
     },
     partyFilter: {
       // Only known customers (not prospects or leads)
@@ -88,8 +95,8 @@ export function createCollectionsGrant(
     disclosureRequired: true,
     auditLevel: 'full',
     rateLimit: {
-      maxPerHour: 20,
-      maxPerDay: 100,
+      maxPerHour: overrides.maxContactsPerHour ?? 20,
+      maxPerDay: overrides.maxContactsPerDay ?? 100,
     },
   };
 

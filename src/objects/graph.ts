@@ -71,26 +71,35 @@ export async function createObject(pool: pg.Pool, input: CreateObjectInput): Pro
   const id = ulid();
   const now = new Date();
 
-  await pool.query(
-    `INSERT INTO world_objects (id, tenant_id, type, version, state, estimated, confidence, sources, created_at, updated_at, valid_from, trace_id)
-     VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $8, $8, $9)`,
-    [
-      id, input.tenantId, input.type,
-      JSON.stringify(input.state),
-      JSON.stringify(input.estimated ?? {}),
-      input.confidence ?? 1.0,
-      JSON.stringify(input.sources ?? []),
-      now,
-      input.traceId ?? null,
-    ],
-  );
-
-  // Write initial version
-  await pool.query(
-    `INSERT INTO world_object_versions (object_id, version, state, estimated, valid_from)
-     VALUES ($1, 1, $2, $3, $4)`,
-    [id, JSON.stringify(input.state), JSON.stringify(input.estimated ?? {}), now],
-  );
+  // Atomic: both inserts in a transaction so we never have an object without a version
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO world_objects (id, tenant_id, type, version, state, estimated, confidence, sources, created_at, updated_at, valid_from, trace_id)
+       VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $8, $8, $9)`,
+      [
+        id, input.tenantId, input.type,
+        JSON.stringify(input.state),
+        JSON.stringify(input.estimated ?? {}),
+        input.confidence ?? 1.0,
+        JSON.stringify(input.sources ?? []),
+        now,
+        input.traceId ?? null,
+      ],
+    );
+    await client.query(
+      `INSERT INTO world_object_versions (object_id, version, state, estimated, valid_from)
+       VALUES ($1, 1, $2, $3, $4)`,
+      [id, JSON.stringify(input.state), JSON.stringify(input.estimated ?? {}), now],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return {
     id,
@@ -253,23 +262,57 @@ export async function queryObjects(
   type?: ObjectType,
   limit = 100,
   offset = 0,
+  q?: string,
 ): Promise<WorldObject[]> {
+  const search = typeof q === 'string' && q.trim() !== '' ? `%${q.trim()}%` : null;
+
   if (type) {
-    const result = await pool.query(
-      `SELECT * FROM world_objects
-       WHERE tenant_id = $1 AND type = $2 AND valid_to IS NULL AND NOT tombstone
-       ORDER BY updated_at DESC LIMIT $3 OFFSET $4`,
-      [tenantId, type, limit, offset],
-    );
+    const result = search
+      ? await pool.query(
+        `SELECT * FROM world_objects
+         WHERE tenant_id = $1
+           AND type = $2
+           AND valid_to IS NULL
+           AND NOT tombstone
+           AND (
+             id ILIKE $5
+             OR type ILIKE $5
+             OR state::text ILIKE $5
+             OR estimated::text ILIKE $5
+           )
+         ORDER BY updated_at DESC LIMIT $3 OFFSET $4`,
+        [tenantId, type, limit, offset, search],
+      )
+      : await pool.query(
+        `SELECT * FROM world_objects
+         WHERE tenant_id = $1 AND type = $2 AND valid_to IS NULL AND NOT tombstone
+         ORDER BY updated_at DESC LIMIT $3 OFFSET $4`,
+        [tenantId, type, limit, offset],
+      );
     return result.rows.map(rowToObject);
   }
 
-  const result = await pool.query(
-    `SELECT * FROM world_objects
-     WHERE tenant_id = $1 AND valid_to IS NULL AND NOT tombstone
-     ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
-    [tenantId, limit, offset],
-  );
+  const result = search
+    ? await pool.query(
+      `SELECT * FROM world_objects
+       WHERE tenant_id = $1
+         AND valid_to IS NULL
+         AND NOT tombstone
+         AND (
+           id ILIKE $4
+           OR type ILIKE $4
+           OR state::text ILIKE $4
+           OR estimated::text ILIKE $4
+         )
+       ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+      [tenantId, limit, offset, search],
+    )
+    : await pool.query(
+      `SELECT * FROM world_objects
+       WHERE tenant_id = $1 AND valid_to IS NULL AND NOT tombstone
+       ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+      [tenantId, limit, offset],
+    );
   return result.rows.map(rowToObject);
 }
 
@@ -484,20 +527,52 @@ export async function countObjects(
   pool: pg.Pool,
   tenantId: string,
   type?: ObjectType,
+  q?: string,
 ): Promise<number> {
+  const search = typeof q === 'string' && q.trim() !== '' ? `%${q.trim()}%` : null;
+
   if (type) {
-    const result = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM world_objects
-       WHERE tenant_id = $1 AND type = $2 AND valid_to IS NULL AND NOT tombstone`,
-      [tenantId, type],
-    );
+    const result = search
+      ? await pool.query(
+        `SELECT COUNT(*)::int AS count FROM world_objects
+         WHERE tenant_id = $1
+           AND type = $2
+           AND valid_to IS NULL
+           AND NOT tombstone
+           AND (
+             id ILIKE $3
+             OR type ILIKE $3
+             OR state::text ILIKE $3
+             OR estimated::text ILIKE $3
+           )`,
+        [tenantId, type, search],
+      )
+      : await pool.query(
+        `SELECT COUNT(*)::int AS count FROM world_objects
+         WHERE tenant_id = $1 AND type = $2 AND valid_to IS NULL AND NOT tombstone`,
+        [tenantId, type],
+      );
     return result.rows[0]?.count ?? 0;
   }
 
-  const result = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM world_objects
-     WHERE tenant_id = $1 AND valid_to IS NULL AND NOT tombstone`,
-    [tenantId],
-  );
+  const result = search
+    ? await pool.query(
+      `SELECT COUNT(*)::int AS count FROM world_objects
+       WHERE tenant_id = $1
+         AND valid_to IS NULL
+         AND NOT tombstone
+         AND (
+           id ILIKE $2
+           OR type ILIKE $2
+           OR state::text ILIKE $2
+           OR estimated::text ILIKE $2
+         )`,
+      [tenantId, search],
+    )
+    : await pool.query(
+      `SELECT COUNT(*)::int AS count FROM world_objects
+       WHERE tenant_id = $1 AND valid_to IS NULL AND NOT tombstone`,
+      [tenantId],
+    );
   return result.rows[0]?.count ?? 0;
 }
