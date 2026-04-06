@@ -17,15 +17,26 @@ from .uplift import fit_uplift_model, predict_uplift, TrainedUpliftModel
 from .conformal import compute_intervals_from_residuals
 from .db import (
     close_pool,
+    get_epoch_training_rows,
+    get_event_counts_for_object,
     get_intervention_comparison_rows,
     get_intervention_training_rows,
     get_latest_model_release,
+    get_party_id_for_invoice,
     get_pool,
     get_prediction_outcome_pairs,
     get_prediction_training_rows,
     insert_model_release,
     list_model_releases,
 )
+from .epoch_trigger import (
+    create_epoch_for_invoice,
+    resolve_pending_outcomes,
+    sweep_invoices_for_epochs,
+)
+from .features import build_full_feature_vector
+from .tenant_stats import load_tenant_stats_with_customer
+from .trajectory import load_customer_trajectory
 from .drift import drift_monitor, check_all_models
 from .models import (
     CalibrateRequest,
@@ -48,6 +59,9 @@ from .models import (
     TrainResponse,
 )
 from .ood import distribution_monitor
+from .catboost_model import TrainedCatBoostModel, fit_catboost_payment_model, predict_catboost
+from .segments import assign_segment, get_tenant_segment, upsert_tenant_segment
+from .survival import TrainedSurvivalModel, fit_survival_model, predict_survival
 from .training import (
     TrainedInterventionModel,
     TrainedProbabilityModel,
@@ -61,11 +75,43 @@ from .training import (
 
 log = logging.getLogger("ml-sidecar")
 
-# In-memory cache of fitted calibrators per (tenant, prediction_type)
-_calibrators: dict[str, dict] = {}
-_trained_models: dict[str, TrainedProbabilityModel] = {}
-_intervention_models: dict[str, TrainedInterventionModel] = {}
-_uplift_models: dict[str, TrainedUpliftModel] = {}
+# LRU-bounded model caches — prevent OOM from unbounded tenant growth.
+# Max 200 entries per cache; evicts least-recently-used when full.
+from collections import OrderedDict
+
+MAX_CACHE_SIZE = int(os.environ.get("ML_MODEL_CACHE_SIZE", "200"))
+
+class LRUCache(OrderedDict):
+    """Simple LRU cache using OrderedDict. Thread-safe for single-threaded async."""
+    def __init__(self, maxsize=MAX_CACHE_SIZE):
+        super().__init__()
+        self._maxsize = maxsize
+
+    def get(self, key, default=None):
+        if key in self:
+            self.move_to_end(key)
+            return self[key]
+        return default
+
+    def set(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        self[key] = value
+        while len(self) > self._maxsize:
+            self.popitem(last=False)
+
+    # dict-compatible __setitem__ for direct assignment
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        while len(self) > self._maxsize:
+            self.popitem(last=False)
+
+_calibrators: LRUCache = LRUCache()
+_trained_models: LRUCache = LRUCache()
+_catboost_models: LRUCache = LRUCache()
+_survival_models: LRUCache = LRUCache()
+_intervention_models: LRUCache = LRUCache()
+_uplift_models: LRUCache = LRUCache()
 
 MIN_TENANT_TRAINING_ROWS = 20
 MIN_GLOBAL_TRAINING_ROWS = 50
@@ -572,6 +618,146 @@ async def predict(req: PredictRequest):
     )
 
 
+@app.post("/predict/v2")
+async def predict_v2(request: Request):
+    """Enhanced prediction with auto-built full feature vector.
+
+    Instead of receiving pre-built features, this endpoint takes tenant_id +
+    object_id and builds the 34-feature vector from the current world model
+    state, including tenant stats, trajectory, and event counts.
+    """
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    object_id = body.get("object_id")
+    prediction_type = body.get("prediction_type", "paymentProbability7d")
+
+    if not tenant_id or not object_id:
+        return JSONResponse({"error": "tenant_id and object_id required"}, status_code=400)
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"error": "no_db"}, status_code=503)
+
+    # Load current object state
+    from .db import get_object_state_at
+    obj = await get_object_state_at(pool, tenant_id, object_id, datetime.now(timezone.utc).isoformat())
+    if obj is None:
+        return JSONResponse({"error": "object_not_found"}, status_code=404)
+
+    state = obj["state"]
+    estimated = obj["estimated"]
+
+    # Resolve party for trajectory
+    party_id = await get_party_id_for_invoice(pool, tenant_id, object_id)
+
+    # Build full feature vector with all 4 families
+    tenant_stats = await load_tenant_stats_with_customer(pool, tenant_id, party_id)
+    event_counts = await get_event_counts_for_object(pool, tenant_id, object_id)
+    trajectory = None
+    if party_id:
+        trajectory = await load_customer_trajectory(pool, tenant_id, party_id)
+
+    features = build_full_feature_vector(
+        state,
+        estimated,
+        tenant_stats=tenant_stats,
+        event_counts=event_counts,
+        trajectory=trajectory,
+    )
+
+    # Try CatBoost first (has SHAP), then logistic regression, then rule fallback
+    from .features import compute_feature_hash as _compute_fh
+    feature_hash = _compute_fh(features)
+
+    predicted_value = float(features.get(prediction_type, 0.5))
+    chosen_model_id = "rule_inference"
+    shap_reasons: list[dict] = []
+    interval = {"lower": max(0, predicted_value - 0.2), "upper": min(1, predicted_value + 0.2), "coverage": 0.90}
+    model_family = "rule_inference"
+
+    # Hierarchical model selection: tenant → segment → global → logistic → rules
+    # 1. Try tenant-specific CatBoost
+    cb_key = _cache_key("tenant", prediction_type, tenant_id)
+    catboost_model = _catboost_models.get(cb_key)
+
+    # 2. Try segment CatBoost if no tenant model
+    if catboost_model is None and pool and tenant_id:
+        segment_id = await get_tenant_segment(pool, tenant_id)
+        if segment_id:
+            seg_key = _cache_key("segment", prediction_type, segment_id)
+            catboost_model = _catboost_models.get(seg_key)
+            if catboost_model:
+                model_family = "catboost_segment"
+
+    # 3. Try global CatBoost
+    if catboost_model is None:
+        global_key = _cache_key("global", prediction_type, None)
+        catboost_model = _catboost_models.get(global_key)
+        if catboost_model:
+            model_family = "catboost_global"
+
+    if catboost_model is not None:
+        cb_result = predict_catboost(catboost_model, features)
+        predicted_value = cb_result["value"]
+        interval = cb_result["interval"]
+        shap_reasons = cb_result.get("shap_reasons", [])
+        chosen_model_id = catboost_model.model_id
+        if model_family == "rule_inference":
+            model_family = "catboost"
+    else:
+        # 4. Try logistic regression
+        learned_model, _ = await _select_model(pool, tenant_id, prediction_type)
+        if learned_model is not None:
+            learned_prediction = predict_with_trained_model(learned_model, features)
+            predicted_value = float(learned_prediction["value"])
+            interval = learned_prediction["interval"]
+            chosen_model_id = learned_model.model_id
+            model_family = "logistic_regression"
+
+    # Survival prediction (time-to-pay)
+    surv_key = f"tenant:{tenant_id}:survival"
+    surv_model = _survival_models.get(surv_key) or _survival_models.get("global:global:survival")
+    survival_info = None
+    if surv_model is not None:
+        sp = predict_survival(surv_model, features)
+        survival_info = {
+            "median_days_to_pay": sp.median_days_to_pay,
+            "survival_7d": sp.survival_7d,
+            "survival_30d": sp.survival_30d,
+            "survival_90d": sp.survival_90d,
+            "hazard_ratio": sp.hazard_ratio,
+        }
+
+    # Drift + OOD
+    drift_scope = tenant_id if model_family == "rule_inference" else "global"
+    drift_status = drift_monitor.get_status(chosen_model_id, prediction_type, drift_scope)
+    ood_result = distribution_monitor.check(drift_scope, prediction_type, features)
+
+    confidence = 0.6 if model_family == "rule_inference" else 0.75
+    if model_family == "catboost" and catboost_model and catboost_model.calibrator:
+        confidence = max(0, 1 - catboost_model.calibrator["ece_after"])
+    if drift_status["drift_detected"]:
+        confidence *= 0.5
+    if not ood_result["in_distribution"]:
+        confidence *= 0.5
+
+    return JSONResponse({
+        "value": round(predicted_value, 6),
+        "confidence": round(confidence, 4),
+        "interval": interval,
+        "model_id": chosen_model_id,
+        "model_family": model_family,
+        "feature_count": len(features),
+        "feature_hash": feature_hash,
+        "shap_reasons": shap_reasons,
+        "survival": survival_info,
+        "drift_detected": drift_status["drift_detected"],
+        "in_distribution": ood_result["in_distribution"],
+        "tenant_stats_available": tenant_stats is not None and tenant_stats.get("invoice_count", 0) > 0,
+        "trajectory_available": trajectory is not None and trajectory.get("invoices_paid_count", 0) > 0,
+    })
+
+
 @app.post("/interventions/estimate", response_model=InterventionEstimateResponse)
 async def estimate_intervention(req: InterventionEstimateRequest):
     pool = await get_pool()
@@ -843,7 +1029,13 @@ async def ingest_graded_outcomes(request: Request):
         return JSONResponse({"stored": 0}, status_code=200)
 
     stored = 0
+    errors = 0
     for outcome in outcomes:
+        action_id = outcome.get("actionId")
+        if not action_id:
+            errors += 1
+            print(f"[graded-outcomes] skipping outcome without actionId for tenant {tenant_id}")
+            continue
         try:
             await pool.execute(
                 """INSERT INTO training_examples
@@ -854,7 +1046,9 @@ async def ingest_graded_outcomes(request: Request):
                 "graded_outcome",
                 outcome.get("targetObjectId"),
                 json.dumps({
+                    "action_id": action_id,
                     "action_class": outcome.get("actionClass"),
+                    "decision_type": outcome.get("decisionType"),
                     "variant_id": outcome.get("variantId"),
                     "invoice_amount_cents": outcome.get("invoiceAmountCents", 0),
                     "days_overdue": outcome.get("daysOverdueAtAction", 0),
@@ -873,11 +1067,11 @@ async def ingest_graded_outcomes(request: Request):
             )
             stored += 1
         except Exception as e:
+            errors += 1
             import traceback
             traceback.print_exc()
-            # Continue processing other outcomes
 
-    return JSONResponse({"stored": stored})
+    return JSONResponse({"stored": stored, "errors": errors})
 
 
 @app.post("/uplift/train")
@@ -930,3 +1124,284 @@ async def predict_uplift_endpoint(request: Request):
 
     result = predict_uplift(model, features)
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Bandit endpoints — IPS estimation and exploration rates
+# ---------------------------------------------------------------------------
+
+
+@app.post("/bandit/ips")
+async def bandit_ips_endpoint(request: Request):
+    """Compute inverse-propensity-weighted reward estimates per action class."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"error": "tenant_id required"}, status_code=400)
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"error": "no_db"}, status_code=503)
+
+    from .bandit import load_decision_outcomes, compute_ips_estimates
+    decisions = await load_decision_outcomes(pool, tenant_id)
+    results = compute_ips_estimates(decisions)
+    results["tenant_id"] = tenant_id
+    return JSONResponse(results)
+
+
+@app.get("/bandit/exploration-rate/{tenant_id}")
+async def bandit_exploration_rate(tenant_id: str):
+    """Get the current exploration rate for a tenant."""
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"exploration_rate": 0.10, "source": "default"})
+
+    from .bandit import load_decision_outcomes, compute_ips_estimates, compute_exploration_rate
+    decisions = await load_decision_outcomes(pool, tenant_id, min_age_days=7, limit=1000)
+    ips = compute_ips_estimates(decisions)
+    rate = compute_exploration_rate(ips)
+    return JSONResponse({
+        "exploration_rate": round(rate, 4),
+        "effective_samples": sum(
+            e["effective_sample_size"]
+            for e in ips.get("action_estimates", {}).values()
+        ),
+        "resolved_decisions": ips.get("resolved_decisions", 0),
+        "source": "ips_decay",
+    })
+
+
+# ---------------------------------------------------------------------------
+# Survival endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/survival/predict")
+async def survival_predict_endpoint(request: Request):
+    """Predict time-to-pay survival function for an invoice."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    features = body.get("features", {})
+
+    if not tenant_id:
+        return JSONResponse({"error": "tenant_id required"}, status_code=400)
+
+    # Try tenant model, fall back to global
+    surv_key = f"tenant:{tenant_id}:survival"
+    model = _survival_models.get(surv_key)
+    if model is None:
+        model = _survival_models.get("global:global:survival")
+
+    if model is None:
+        return JSONResponse({
+            "error": "no_survival_model",
+            "median_days_to_pay": None,
+            "survival_7d": None,
+            "survival_30d": None,
+            "survival_90d": None,
+        })
+
+    prediction = predict_survival(model, features)
+    return JSONResponse({
+        "median_days_to_pay": prediction.median_days_to_pay,
+        "survival_7d": prediction.survival_7d,
+        "survival_30d": prediction.survival_30d,
+        "survival_90d": prediction.survival_90d,
+        "hazard_ratio": prediction.hazard_ratio,
+        "concordance": prediction.concordance,
+        "model_id": model.model_id,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Epoch endpoints — decision epoch lifecycle
+# ---------------------------------------------------------------------------
+
+
+@app.post("/epochs/sweep")
+async def epoch_sweep(request: Request):
+    """Sweep open invoices for a tenant and create decision epochs."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    if not tenant_id:
+        return JSONResponse({"error": "tenant_id required"}, status_code=400)
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"created": 0, "error": "no_db"}, status_code=200)
+
+    created = await sweep_invoices_for_epochs(
+        pool,
+        tenant_id,
+        tenant_stats=body.get("tenant_stats"),
+        limit=body.get("limit", 200),
+    )
+    return JSONResponse({"created": created, "tenant_id": tenant_id})
+
+
+@app.post("/epochs/resolve")
+async def epoch_resolve(request: Request):
+    """Resolve outcomes for epochs whose observation window has closed."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"resolved": 0, "error": "no_db"}, status_code=200)
+
+    resolved = await resolve_pending_outcomes(pool, tenant_id)
+    return JSONResponse({"resolved": resolved, "tenant_id": tenant_id})
+
+
+@app.post("/epochs/create")
+async def epoch_create_single(request: Request):
+    """Create an epoch for a single invoice (called after Stripe webhooks)."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    object_id = body.get("object_id")
+    if not tenant_id or not object_id:
+        return JSONResponse({"error": "tenant_id and object_id required"}, status_code=400)
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"created": False, "error": "no_db"}, status_code=200)
+
+    epoch = await create_epoch_for_invoice(
+        pool,
+        tenant_id,
+        object_id,
+        tenant_stats=body.get("tenant_stats"),
+        trajectory=body.get("trajectory"),
+    )
+    return JSONResponse({
+        "created": epoch is not None,
+        "epoch_id": epoch["id"] if epoch else None,
+        "trigger": epoch["epoch_trigger"] if epoch else None,
+    })
+
+
+@app.post("/train/v2")
+async def train_v2(request: Request):
+    """Train a model using epoch-based training data (point-in-time correct)."""
+    body = await request.json()
+    tenant_id = body.get("tenant_id")
+    prediction_type = body.get("prediction_type", "paymentProbability7d")
+    force = body.get("force", False)
+
+    pool = await get_pool()
+    if not pool:
+        return JSONResponse({"status": "no_db"}, status_code=200)
+
+    scope = "tenant" if tenant_id else "global"
+    epoch_rows = await get_epoch_training_rows(pool, tenant_id, prediction_type)
+
+    if len(epoch_rows) < MIN_TENANT_TRAINING_ROWS:
+        return JSONResponse({
+            "status": "insufficient_epoch_data",
+            "epoch_rows": len(epoch_rows),
+            "minimum_required": MIN_TENANT_TRAINING_ROWS,
+            "fallback": "use /train for legacy training",
+        })
+
+    # Try CatBoost first (needs >= 50 samples), fall back to logistic regression
+    catboost_model = fit_catboost_payment_model(
+        epoch_rows,
+        prediction_type=prediction_type,
+        tenant_id=tenant_id,
+        scope=scope,
+    )
+
+    if catboost_model is not None:
+        cache_key = _cache_key(scope, prediction_type, tenant_id)
+        _catboost_models[cache_key] = catboost_model
+        model_id = catboost_model.model_id
+        model_family = "catboost"
+        brier = catboost_model.brier_score
+        auc = catboost_model.roc_auc
+        sample_count = catboost_model.sample_count
+        metadata = catboost_model.metadata
+    else:
+        # Fall back to logistic regression
+        logreg = fit_probability_model(
+            epoch_rows,
+            prediction_type=prediction_type,
+            tenant_id=tenant_id,
+            scope=scope,
+        )
+        if logreg is None:
+            return JSONResponse({"status": "training_failed"})
+
+        cache_key = _cache_key(scope, prediction_type, tenant_id)
+        logreg.release_id = None
+        logreg.release_status = "candidate"
+        _trained_models[cache_key] = logreg
+        model_id = logreg.model_id
+        model_family = "logistic_regression"
+        brier = logreg.brier_score
+        auc = logreg.roc_auc
+        sample_count = logreg.sample_count
+        metadata = logreg.metadata
+
+    # Also train survival model (time-to-pay)
+    survival = fit_survival_model(epoch_rows, tenant_id=tenant_id, scope=scope)
+    survival_info = None
+    if survival is not None:
+        surv_cache_key = f"{scope}:{tenant_id or 'global'}:survival"
+        _survival_models[surv_cache_key] = survival
+        survival_info = {
+            "model_id": survival.model_id,
+            "concordance": survival.concordance,
+            "median_survival_days": survival.median_survival_days,
+            "sample_count": survival.sample_count,
+            "event_count": survival.event_count,
+            "censored_count": survival.censored_count,
+        }
+
+    # Create release record
+    release_id = f"release_{uuid4().hex}"
+    baseline_comparison, replay_report, training_window, release_status = _evaluate_candidate_release(
+        # Create a minimal adapter for evaluation
+        type("_Model", (), {
+            "model_id": model_id, "feature_names": list((epoch_rows[0].get("feature_snapshot") or {}).keys()),
+            "estimator": None, "calibrator": None, "residuals": [],
+        })() if catboost_model is None else type("_Model", (), {
+            "model_id": model_id, "feature_names": catboost_model.feature_names,
+            "estimator": None, "calibrator": catboost_model.calibrator, "residuals": [],
+        })(),
+        epoch_rows,
+    ) if catboost_model is None else ({}, {}, {}, "candidate")
+
+    await insert_model_release(pool, {
+        "release_id": release_id,
+        "model_id": model_id,
+        "prediction_type": prediction_type,
+        "scope": scope,
+        "tenant_id": tenant_id,
+        "status": release_status,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "sample_count": sample_count,
+        "positive_rate": 0.0,
+        "brier_score": brier,
+        "roc_auc": auc,
+        "calibration_method": "catboost_builtin" if model_family == "catboost" else "none",
+        "feature_manifest": catboost_model.feature_names if catboost_model else [],
+        "training_window": training_window if isinstance(training_window, dict) else {},
+        "baseline_model_id": "rule_inference",
+        "baseline_comparison": baseline_comparison if isinstance(baseline_comparison, dict) else {},
+        "replay_report": replay_report if isinstance(replay_report, dict) else {},
+        "metadata": metadata,
+    })
+
+    return JSONResponse({
+        "status": "trained",
+        "source": "decision_epochs",
+        "model_family": model_family,
+        "model_id": model_id,
+        "release_id": release_id,
+        "release_status": release_status,
+        "sample_count": sample_count,
+        "brier_score": brier,
+        "roc_auc": auc,
+        "survival": survival_info,
+    })

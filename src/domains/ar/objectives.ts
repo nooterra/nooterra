@@ -80,6 +80,82 @@ export const SUPPORTED_OBJECTIVE_CONSTRAINTS: ObjectiveConstraintDefinition[] = 
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Strategy Templates — preset objective weight configurations
+// ---------------------------------------------------------------------------
+
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  weights: Record<string, number>;
+  collectionConfig: Record<string, unknown>;
+}
+
+export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
+  {
+    id: 'aggressive',
+    name: 'Aggressive recovery',
+    description: 'Maximize cash recovery with frequent outreach. Best for high-volume, low-touch accounts.',
+    weights: {
+      cash_acceleration: 0.55,
+      dispute_minimization: 0.15,
+      churn_minimization: 0.10,
+      review_load_minimization: 0.10,
+      relationship_preservation: 0.10,
+    },
+    collectionConfig: {
+      strategy: 'aggressive',
+      maxContactsPerDayPerCustomer: 2,
+      maxContactsPerWeekPerCustomer: 5,
+      cooldownHoursAfterContact: 48,
+      escalationThresholdDaysOverdue: 21,
+    },
+  },
+  {
+    id: 'balanced',
+    name: 'Balanced',
+    description: 'Balance cash recovery with relationship health. The default for most businesses.',
+    weights: {
+      cash_acceleration: 0.40,
+      dispute_minimization: 0.20,
+      churn_minimization: 0.20,
+      review_load_minimization: 0.10,
+      relationship_preservation: 0.10,
+    },
+    collectionConfig: {
+      strategy: 'balanced',
+      maxContactsPerDayPerCustomer: 1,
+      maxContactsPerWeekPerCustomer: 3,
+      cooldownHoursAfterContact: 72,
+      escalationThresholdDaysOverdue: 30,
+    },
+  },
+  {
+    id: 'relationship_first',
+    name: 'Relationship first',
+    description: 'Prioritize customer retention over immediate recovery. Best for high-value, long-term accounts.',
+    weights: {
+      cash_acceleration: 0.25,
+      dispute_minimization: 0.20,
+      churn_minimization: 0.30,
+      review_load_minimization: 0.05,
+      relationship_preservation: 0.20,
+    },
+    collectionConfig: {
+      strategy: 'relationship_first',
+      maxContactsPerDayPerCustomer: 1,
+      maxContactsPerWeekPerCustomer: 2,
+      cooldownHoursAfterContact: 120,
+      escalationThresholdDaysOverdue: 45,
+    },
+  },
+];
+
+export function getStrategyTemplate(id: string): StrategyTemplate | null {
+  return STRATEGY_TEMPLATES.find((t) => t.id === id) ?? null;
+}
+
 export function createDefaultArObjectives(tenantId: string): TenantObjectives {
   return {
     tenantId,

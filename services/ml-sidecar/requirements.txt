@@ -1,11 +1,33 @@
-fastapi>=0.115
-uvicorn[standard]>=0.34
-asyncpg>=0.30
-numpy>=1.26
-scikit-learn>=1.5
-mapie>=0.9
-river>=0.21
-pydantic>=2.9
-httpx>=0.27
-pytest>=8.0
-pytest-asyncio>=0.24
+# Pinned dependencies — generated from requirements.in
+# Do not edit manually. Update requirements.in and re-pin.
+# Last pinned: 2026-04-05
+
+# Web framework
+fastapi==0.135.3
+uvicorn[standard]==0.42.0
+
+# Database
+asyncpg==0.31.0
+
+# ML / Numerics
+numpy==2.2.6
+scikit-learn==1.8.0
+catboost==1.2.10
+shap==0.51.0
+lifelines==0.30.3
+
+# Calibration / Conformal
+mapie==1.3.0
+
+# Online learning / Drift detection
+river==0.23.0
+
+# Data validation
+pydantic==2.12.5
+
+# HTTP client
+httpx==0.28.1
+
+# Testing
+pytest==9.0.2
+pytest-asyncio==1.3.0

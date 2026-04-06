@@ -359,7 +359,10 @@ export async function getBillingStatus(tenantId, pool) {
 
 function verifyWebhookSignature(rawBody, signatureHeader) {
   if (!STRIPE_WEBHOOK_SECRET) {
-    return JSON.parse(rawBody); // dev mode: skip verification
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('STRIPE_WEBHOOK_SECRET not configured — refusing to process unverified webhook in production');
+    }
+    return JSON.parse(rawBody); // dev mode only: skip verification
   }
 
   const parts = (signatureHeader || '').split(',').reduce((acc, part) => {

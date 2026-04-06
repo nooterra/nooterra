@@ -81,6 +81,11 @@ pool.on('error', (err) => {
   log('error', `Unexpected pool error: ${err.message}`);
 });
 
+// Set statement timeout to prevent runaway queries (30s default)
+import('./tenant-scoped-pool.js').then(({ setPoolStatementTimeout }) => {
+  setPoolStatementTimeout(pool, parseInt(process.env.PG_STATEMENT_TIMEOUT_MS || '30000', 10));
+}).catch(() => {});
+
 // Give builtin-tools access to the pool for worker delegation
 setBuiltinToolsPool(pool);
 
@@ -173,13 +178,16 @@ async function handleWorkerChat(req, res, workerId) {
   }
 
   const { messages } = parsed;
-  const tenantId = req.headers['x-tenant-id'] || parsed.tenantId;
 
-  if (!tenantId) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'tenantId required' }));
+  // Authenticate via session — never trust bare x-tenant-id header
+  const { getAuthenticatedPrincipal } = await import('./auth.js');
+  const principal = await getAuthenticatedPrincipal(req);
+  if (!principal) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Authentication required' }));
     return;
   }
+  const tenantId = principal.tenantId;
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'messages array required' }));
@@ -487,6 +495,18 @@ async function ensureTables() {
       UNIQUE(tenant_id, service)
     );
 
+    CREATE TABLE IF NOT EXISTS tenant_stripe_scans (
+      scan_id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      lookback_days INTEGER NOT NULL DEFAULT 30,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      error_message TEXT,
+      result_payload JSONB,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS tenant_worker_runtime_policies (
       tenant_id TEXT PRIMARY KEY,
       policy JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -520,6 +540,8 @@ async function ensureTables() {
     CREATE INDEX IF NOT EXISTS worker_approvals_worker_decision ON worker_approvals(worker_id, decision, decided_at DESC);
     CREATE INDEX IF NOT EXISTS worker_approvals_worker_matched_rule ON worker_approvals(worker_id, matched_rule, decided_at DESC);
     CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON tenant_integrations(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_tenant_stripe_scans_tenant_started ON tenant_stripe_scans(tenant_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_tenant_stripe_scans_status_started ON tenant_stripe_scans(tenant_id, status, started_at DESC);
     CREATE INDEX IF NOT EXISTS tenant_worker_runtime_policies_updated_at ON tenant_worker_runtime_policies(updated_at DESC);
     CREATE INDEX IF NOT EXISTS worker_runtime_policy_overrides_worker_updated_at ON worker_runtime_policy_overrides(worker_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS worker_runtime_policy_overrides_tenant_updated_at ON worker_runtime_policy_overrides(tenant_id, updated_at DESC);
@@ -777,6 +799,28 @@ async function ensureTables() {
       BEFORE INSERT OR UPDATE OF status, decision ON worker_approvals
       FOR EACH ROW
       EXECUTE FUNCTION guard_worker_approval_transition();
+
+    ALTER TABLE tenant_stripe_scans
+      DROP CONSTRAINT IF EXISTS tenant_stripe_scans_status_valid;
+    ALTER TABLE tenant_stripe_scans
+      ADD CONSTRAINT tenant_stripe_scans_status_valid
+      CHECK (status IN ('pending', 'processing', 'completed', 'failed')) NOT VALID;
+
+    ALTER TABLE tenant_stripe_scans
+      DROP CONSTRAINT IF EXISTS tenant_stripe_scans_lookback_days_valid;
+    ALTER TABLE tenant_stripe_scans
+      ADD CONSTRAINT tenant_stripe_scans_lookback_days_valid
+      CHECK (lookback_days > 0) NOT VALID;
+
+    ALTER TABLE tenant_stripe_scans
+      DROP CONSTRAINT IF EXISTS tenant_stripe_scans_result_payload_object;
+    ALTER TABLE tenant_stripe_scans
+      ADD CONSTRAINT tenant_stripe_scans_result_payload_object
+      CHECK (result_payload IS NULL OR jsonb_typeof(result_payload) = 'object') NOT VALID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_stripe_scans_active
+      ON tenant_stripe_scans (tenant_id)
+      WHERE status IN ('pending', 'processing');
   `);
 
   log('info', 'Database tables created (bootstrap mode)');
@@ -796,6 +840,20 @@ async function start() {
   }
   if (!process.env.OPENROUTER_API_KEY) {
     log('warn', 'OPENROUTER_API_KEY not set — only BYOK workers will function');
+  }
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.CREDENTIAL_ENCRYPTION_KEY) {
+      log('error', 'FATAL: CREDENTIAL_ENCRYPTION_KEY not set in production');
+      process.exit(1);
+    }
+    if (!process.env.ML_SIDECAR_URL) {
+      log('error', 'FATAL: ML_SIDECAR_URL not set in production');
+      process.exit(1);
+    }
+    if (!process.env.MAGIC_LINK_INTERNAL_URL && !process.env.MAGIC_LINK_URL) {
+      log('error', 'FATAL: MAGIC_LINK_URL not set in production');
+      process.exit(1);
+    }
   }
 
   // Verify database connection

@@ -3,7 +3,8 @@
  *
  * AES-256-GCM encryption for OAuth tokens and BYOK API keys at rest.
  * Set CREDENTIAL_ENCRYPTION_KEY env var (64-char hex = 32 bytes) to enable.
- * Without the key, functions gracefully fall back to plaintext (backward compatible).
+ * Insecure plaintext fallback is allowed only outside production, or when
+ * ALLOW_INSECURE_CREDENTIALS=true is explicitly set.
  */
 
 import crypto from 'node:crypto';
@@ -22,19 +23,33 @@ function log(level, msg) {
 }
 
 let _keyWarningLogged = false;
+let _plaintextWarningLogged = false;
+
+function insecureCredentialFallbackAllowed() {
+  // NEVER allow insecure credentials in production, regardless of env vars
+  if (process.env.NODE_ENV === 'production') return false;
+  return true; // dev/test only
+}
 
 /**
  * Returns the 32-byte encryption key from CREDENTIAL_ENCRYPTION_KEY env var.
- * Returns null if not set (encryption disabled).
+ * Returns null only when insecure fallback is explicitly allowed.
  */
-export function getEncryptionKey() {
+export function getEncryptionKey(options = {}) {
+  const { strict = false, allowInsecureFallback = true } = options;
   const hex = process.env.CREDENTIAL_ENCRYPTION_KEY;
   if (!hex) {
+    if (strict && (!allowInsecureFallback || !insecureCredentialFallbackAllowed())) {
+      throw new Error('CREDENTIAL_ENCRYPTION_KEY must be configured for secure credential storage');
+    }
     if (!_keyWarningLogged) {
-      log('warn', 'CREDENTIAL_ENCRYPTION_KEY not set — credentials stored in plaintext');
+      log('warn', 'CREDENTIAL_ENCRYPTION_KEY not set — insecure credential fallback is active');
       _keyWarningLogged = true;
     }
     return null;
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error('CREDENTIAL_ENCRYPTION_KEY must be a 64-character hex string');
   }
   return Buffer.from(hex, 'hex');
 }
@@ -81,25 +96,38 @@ export function looksEncrypted(value) {
 }
 
 /**
- * Encrypt a credential if a key is available, otherwise return plaintext.
+ * Encrypt a credential. Outside production, plaintext fallback is allowed only
+ * when secure storage is intentionally unavailable.
  */
 export function encryptCredential(plaintext) {
-  const key = getEncryptionKey();
+  const key = getEncryptionKey({ strict: true, allowInsecureFallback: true });
   if (!key) return plaintext;
   return encrypt(plaintext, key);
 }
 
 /**
- * Decrypt a credential if it looks encrypted and a key is available, otherwise return as-is.
+ * Decrypt a credential. Encrypted values must always decrypt successfully.
+ * Plaintext fallback is only allowed in non-production or when explicitly enabled.
  */
 export function decryptCredential(value) {
   if (!value) return value;
-  const key = getEncryptionKey();
-  if (!key || !looksEncrypted(value)) return value;
+  const encrypted = looksEncrypted(value);
+  if (!encrypted) {
+    if (!insecureCredentialFallbackAllowed()) {
+      throw new Error('Plaintext credentials are not allowed without ALLOW_INSECURE_CREDENTIALS=true');
+    }
+    if (!_plaintextWarningLogged) {
+      log('warn', 'Using plaintext credential fallback');
+      _plaintextWarningLogged = true;
+    }
+    return value;
+  }
+
+  const key = getEncryptionKey({ strict: true, allowInsecureFallback: false });
   try {
     return decrypt(value, key);
   } catch (err) {
     log('error', `Failed to decrypt credential: ${err.message}`);
-    return value; // return raw value so caller can still attempt to use it
+    throw new Error('Stored credential could not be decrypted');
   }
 }

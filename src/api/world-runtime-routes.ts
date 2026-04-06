@@ -2275,6 +2275,35 @@ export async function handleWorldRuntimeRoute(
     return true;
   }
 
+  // Trigger a collections cycle manually
+  if (req.method === 'POST' && pathname === '/v1/world/collections/cycle') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+    const { runCollectionsCycle } = await import('../../services/runtime/collections-cycle.js');
+    const result = await runCollectionsCycle(pool, tenantId);
+    json(res, result);
+    return true;
+  }
+
+  // NBA-based plan: uses value-function-backed ranking instead of hardcoded stages
+  if (req.method === 'GET' && pathname === '/v1/world/plan/nba') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+    const { generateNBAPlan } = await import('../planner/planner.js');
+    const plan = await generateNBAPlan(pool, tenantId);
+    json(res, plan);
+    return true;
+  }
+
+  // NBA ranking for a single invoice
+  if (req.method === 'GET' && pathname.startsWith('/v1/world/plan/nba/') && pathname.split('/').length === 6) {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+    const objectId = pathname.split('/')[5];
+    if (!objectId) return error(res, 'Missing object ID', 400), true;
+    const { rankActions } = await import('../policy/next-best-action.js');
+    const result = await rankActions(pool, tenantId, objectId);
+    json(res, result);
+    return true;
+  }
+
   // --- Gateway / Escrow ---
 
   if (req.method === 'GET' && pathname === '/v1/world/escrow') {
@@ -2383,6 +2412,15 @@ export async function handleWorldRuntimeRoute(
   if (req.method === 'GET' && pathname === '/v1/world/scorecard') {
     if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
     const scorecard = await buildOperatorScorecard(pool, tenantId);
+    json(res, scorecard);
+    return true;
+  }
+
+  // Shadow scorecard — counterfactual "if you'd followed our recommendations"
+  if (req.method === 'GET' && pathname === '/v1/world/shadow-scorecard') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+    const { buildShadowScorecard } = await import('../eval/shadow-scorecard.js');
+    const scorecard = await buildShadowScorecard(pool, tenantId);
     json(res, scorecard);
     return true;
   }
@@ -2589,6 +2627,50 @@ export async function handleWorldRuntimeRoute(
       counts[row.type] = row.count;
     }
     json(res, { counts });
+    return true;
+  }
+
+  // --- Epoch Backfill ---
+
+  if (req.method === 'POST' && pathname === '/v1/world/epochs/backfill') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+
+    const ML_SIDECAR_URL = process.env.ML_SIDECAR_URL ?? 'http://localhost:8100';
+    try {
+      const sweepRes = await fetch(`${ML_SIDECAR_URL}/epochs/sweep`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId, limit: 500 }),
+      });
+      if (!sweepRes.ok) {
+        return error(res, 'Epoch sweep failed', 502), true;
+      }
+      const sweepResult = await sweepRes.json() as Record<string, unknown>;
+      json(res, { created: sweepResult.created ?? 0, tenantId });
+    } catch {
+      return error(res, 'ML sidecar unavailable', 503), true;
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && pathname === '/v1/world/epochs/resolve') {
+    if (!tenantId) return error(res, 'Missing x-tenant-id', 400), true;
+
+    const ML_SIDECAR_URL = process.env.ML_SIDECAR_URL ?? 'http://localhost:8100';
+    try {
+      const resolveRes = await fetch(`${ML_SIDECAR_URL}/epochs/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId }),
+      });
+      if (!resolveRes.ok) {
+        return error(res, 'Epoch resolve failed', 502), true;
+      }
+      const resolveResult = await resolveRes.json() as Record<string, unknown>;
+      json(res, { resolved: resolveResult.resolved ?? 0, tenantId });
+    } catch {
+      return error(res, 'ML sidecar unavailable', 503), true;
+    }
     return true;
   }
 

@@ -20,6 +20,7 @@ const EmployeeDashboard = lazy(() => import("./views/EmployeeDashboard.jsx"));
 const ApprovalInbox = lazy(() => import("./views/ApprovalInbox.jsx"));
 const AccountBrief = lazy(() => import("./views/AccountBrief.jsx"));
 const EmployeeSettings = lazy(() => import("./views/EmployeeSettings.jsx"));
+const ArShell = lazy(() => import("./views/ar/ArShell.jsx"));
 const PRODUCT_RUNTIME_STORAGE_KEY = "nooterra_product_runtime_v1";
 const PRODUCT_ONBOARDING_STORAGE_KEY = "nooterra_product_onboarding_v1";
 
@@ -43,6 +44,7 @@ function getRouteMode() {
   if (path === "/queue") return { mode: "approval_queue", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/v2") return { mode: "landing_v2", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/scan") return { mode: "scan_reveal", launchId: null, agentId: null, runId: null, requestedPath: null };
+  if (path === "/collections") return { mode: "ar_command_center", launchId: null, agentId: null, runId: null, requestedPath: null };
   if (path === "/setup") return { mode: "setup", launchId: null, agentId: null, runId: null, requestedPath: null };
 
   // Employee routes
@@ -334,6 +336,14 @@ export default function App() {
     return (
       <Suspense fallback={<RouteLoadingScreen label="Loading scan" />}>
         <ScanReveal />
+      </Suspense>
+    );
+  }
+
+  if (route.mode === 'ar_command_center') {
+    return (
+      <Suspense fallback={<RouteLoadingScreen label="Loading collections" />}>
+        <ArShell />
       </Suspense>
     );
   }

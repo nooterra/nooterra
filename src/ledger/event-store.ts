@@ -37,20 +37,17 @@ function computeEventHash(event: Omit<WorldEvent, 'hash'>): string {
   return createHash('sha256').update(material).digest('hex');
 }
 
-// In-memory cache of latest hash per tenant (populated on first write)
-const latestHashes = new Map<string, string>();
-
-async function getLatestHash(pool: pg.Pool, tenantId: string): Promise<string | undefined> {
-  if (latestHashes.has(tenantId)) {
-    return latestHashes.get(tenantId);
-  }
-  const result = await pool.query(
+/**
+ * Get the latest hash for a tenant from the database.
+ * MUST be called inside a transaction with an advisory lock to prevent
+ * concurrent writers from reading the same previous_hash.
+ */
+async function getLatestHashFromDb(client: pg.PoolClient, tenantId: string): Promise<string | undefined> {
+  const result = await client.query(
     `SELECT hash FROM world_events WHERE tenant_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
     [tenantId],
   );
-  const hash = result.rows[0]?.hash as string | undefined;
-  if (hash) latestHashes.set(tenantId, hash);
-  return hash;
+  return result.rows[0]?.hash as string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,53 +89,66 @@ export async function appendEvent(pool: pg.Pool, input: AppendEventInput): Promi
   const id = ulid();
   const recordedAt = new Date();
   const domain = input.type.split('.')[0]!;
-  const previousHash = await getLatestHash(pool, input.tenantId);
 
-  const event: Omit<WorldEvent, 'hash'> & { hash?: string } = {
-    id,
-    tenantId: input.tenantId,
-    type: input.type,
-    timestamp: input.timestamp,
-    recordedAt,
-    sourceType: input.sourceType,
-    sourceId: input.sourceId,
-    objectRefs: input.objectRefs,
-    payload: input.payload,
-    confidence: input.confidence ?? 1.0,
-    provenance: input.provenance,
-    causedBy: input.causedBy,
-    traceId: input.traceId,
-    previousHash,
-  };
+  // Use a transaction with advisory lock to serialize writes per tenant.
+  // This prevents hash chain forks from concurrent writers.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Advisory lock keyed on tenant_id hash — serializes all event writes for this tenant
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.tenantId]);
 
-  const hash = computeEventHash(event as Omit<WorldEvent, 'hash'>);
-  event.hash = hash;
+    const previousHash = await getLatestHashFromDb(client, input.tenantId);
 
-  await pool.query(
-    `INSERT INTO world_events (
-      id, tenant_id, type, domain, timestamp, recorded_at,
-      source_type, source_id, object_refs, payload,
-      confidence, provenance, caused_by, trace_id,
-      hash, previous_hash
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-    [
-      id, input.tenantId, input.type, domain,
-      input.timestamp, recordedAt,
-      input.sourceType, input.sourceId,
-      JSON.stringify(input.objectRefs),
-      JSON.stringify(input.payload),
-      input.confidence ?? 1.0,
-      JSON.stringify(input.provenance),
-      input.causedBy ?? null,
-      input.traceId,
-      hash, previousHash ?? null,
-    ],
-  );
+    const event: Omit<WorldEvent, 'hash'> & { hash?: string } = {
+      id,
+      tenantId: input.tenantId,
+      type: input.type,
+      timestamp: input.timestamp,
+      recordedAt,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      objectRefs: input.objectRefs,
+      payload: input.payload,
+      confidence: input.confidence ?? 1.0,
+      provenance: input.provenance,
+      causedBy: input.causedBy,
+      traceId: input.traceId,
+      previousHash,
+    };
 
-  // Update hash cache
-  latestHashes.set(input.tenantId, hash);
+    const hash = computeEventHash(event as Omit<WorldEvent, 'hash'>);
+    event.hash = hash;
 
-  return event as WorldEvent;
+    await client.query(
+      `INSERT INTO world_events (
+        id, tenant_id, type, domain, timestamp, recorded_at,
+        source_type, source_id, object_refs, payload,
+        confidence, provenance, caused_by, trace_id,
+        hash, previous_hash
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+      [
+        id, input.tenantId, input.type, domain,
+        input.timestamp, recordedAt,
+        input.sourceType, input.sourceId,
+        JSON.stringify(input.objectRefs),
+        JSON.stringify(input.payload),
+        input.confidence ?? 1.0,
+        JSON.stringify(input.provenance),
+        input.causedBy ?? null,
+        input.traceId,
+        hash, previousHash ?? null,
+      ],
+    );
+
+    await client.query('COMMIT');
+    return event as WorldEvent;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -294,14 +304,16 @@ export async function queryEvents(pool: pg.Pool, filter: EventFilter): Promise<W
     idx++;
   }
 
-  const limit = filter.limit ?? 100;
-  const offset = filter.offset ?? 0;
+  // Sanitize LIMIT/OFFSET to prevent SQL injection
+  const limit = Math.min(Math.max(parseInt(String(filter.limit ?? 100), 10) || 100, 1), 10000);
+  const offset = Math.max(parseInt(String(filter.offset ?? 0), 10) || 0, 0);
 
+  params.push(limit, offset);
   const result = await pool.query(
     `SELECT * FROM world_events
      WHERE ${conditions.join(' AND ')}
      ORDER BY timestamp DESC
-     LIMIT ${limit} OFFSET ${offset}`,
+     LIMIT $${idx} OFFSET $${idx + 1}`,
     params,
   );
 
@@ -331,8 +343,12 @@ export async function getObjectHistory(
 /**
  * Get a single event by ID.
  */
-export async function getEvent(pool: pg.Pool, eventId: string): Promise<WorldEvent | null> {
-  const result = await pool.query('SELECT * FROM world_events WHERE id = $1', [eventId]);
+export async function getEvent(pool: pg.Pool, eventId: string, tenantId?: string): Promise<WorldEvent | null> {
+  const query = tenantId
+    ? 'SELECT * FROM world_events WHERE id = $1 AND tenant_id = $2'
+    : 'SELECT * FROM world_events WHERE id = $1';
+  const params = tenantId ? [eventId, tenantId] : [eventId];
+  const result = await pool.query(query, params);
   if (result.rows.length === 0) return null;
   return rowToEvent(result.rows[0]);
 }

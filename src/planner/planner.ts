@@ -780,6 +780,106 @@ export async function generateReactivePlan(
   };
 }
 
+/**
+ * NBA-based plan generation — uses the value-function-backed Next-Best-Action
+ * ranker instead of the hardcoded stage-based approach.
+ *
+ * Each invoice gets a full candidate ranking with model-backed scores,
+ * constraint checking, uncertainty escalation, and decision logging.
+ */
+export async function generateNBAPlan(
+  pool: pg.Pool,
+  tenantId: string,
+  options?: { explorationRate?: number },
+): Promise<PlanResult> {
+  const { rankActions } = await import('../policy/next-best-action.js');
+  const now = new Date();
+  const actions: PlannedAction[] = [];
+
+  const invoices = await queryObjects(pool, tenantId, 'invoice', 500);
+  const actionableInvoices = invoices.filter((inv) => {
+    const state = inv.state as Record<string, unknown>;
+    const status = String(state.status ?? '').toLowerCase();
+    return status === 'overdue' || status === 'sent' || status === 'partial';
+  });
+
+  for (const invoice of actionableInvoices) {
+    const state = invoice.state as Record<string, unknown>;
+    const dueAt = state.dueAt ? new Date(String(state.dueAt)) : null;
+    const daysOverdue = dueAt ? Math.max(0, (now.getTime() - dueAt.getTime()) / 86400000) : 0;
+    if (daysOverdue < 1 && String(state.status ?? '') !== 'overdue') continue;
+
+    const result = await rankActions(pool, tenantId, invoice.id, options);
+    if (!result.chosen) continue;
+
+    const chosen = result.chosen;
+    const reasoning = [
+      `NBA rank #${chosen.rank}: ${chosen.actionClass} (value=${chosen.value.totalValue.toFixed(3)})`,
+      `Cash: ${chosen.value.cashComponent.toFixed(3)}, Dispute: -${chosen.value.disputeComponent.toFixed(3)}, Churn: -${chosen.value.churnComponent.toFixed(3)}`,
+      `Candidates evaluated: ${result.candidates.length}, blocked: ${result.candidates.filter((c) => c.blocked).length}`,
+    ];
+    if (result.survivalInfo) {
+      reasoning.push(
+        `Survival: median=${result.survivalInfo.medianDaysToPay?.toFixed(0) ?? '?'}d, P(paid 30d)=${((1 - result.survivalInfo.survival30d) * 100).toFixed(0)}%`,
+      );
+    }
+    if (chosen.exploration) {
+      reasoning.push('Exploration: non-greedy action selected for policy learning');
+    }
+
+    actions.push({
+      id: ulid(),
+      tenantId,
+      actionClass: chosen.actionClass,
+      targetObjectId: invoice.id,
+      targetObjectType: 'invoice',
+      description: chosen.description,
+      priority: chosen.value.totalValue,
+      scheduledAt: now,
+      parameters: {
+        invoiceNumber: state.number,
+        amountCents: state.amountCents,
+        amountRemainingCents: state.amountRemainingCents ?? state.amountCents,
+        daysOverdue: Math.round(daysOverdue),
+        partyId: state.partyId,
+        recommendedVariantId: chosen.variantId,
+        nbaDecisionLogId: result.decisionLogId,
+      },
+      reasoning,
+      objectiveScore: chosen.value.totalValue,
+      objectiveBreakdown: chosen.value.components,
+      uncertainty: {
+        extraction: 0.8,
+        relationship: 0.7,
+        stateEstimate: 0.8,
+        prediction: 1 - chosen.uncertaintyComposite,
+        intervention: 0.7,
+        policy: 0.9,
+        composite: chosen.uncertaintyComposite,
+        humanReviewRequired: chosen.requiresApproval,
+        abstainRecommended: false,
+        driftDetected: false,
+        outOfDistribution: false,
+        reasons: chosen.constraintResults.filter((c) => !c.ok).map((c) => c.reason).filter(Boolean) as string[],
+      },
+      requiresHumanReview: chosen.requiresApproval,
+      controlReasons: chosen.constraintResults.filter((c) => !c.ok).map((c) => c.reason).filter(Boolean) as string[],
+    });
+  }
+
+  actions.sort((a, b) => b.priority - a.priority);
+
+  const deduplicatedActions = deduplicateByCustomer(actions);
+
+  return {
+    tenantId,
+    generatedAt: now,
+    actions: deduplicatedActions,
+    summary: `NBA plan: ${deduplicatedActions.length} action(s) from ${actionableInvoices.length} invoices. ${deduplicatedActions.filter((a) => a.actionClass === 'communicate.email').length} emails, ${deduplicatedActions.filter((a) => a.actionClass === 'task.create').length} escalations, ${deduplicatedActions.filter((a) => a.actionClass === 'strategic.hold').length} holds`,
+  };
+}
+
+
 export async function buildComparativeReplay(
   pool: pg.Pool,
   tenantId: string,

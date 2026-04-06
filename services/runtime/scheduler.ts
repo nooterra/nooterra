@@ -11,6 +11,7 @@ import {
   runActionOutcomeWatcher,
 } from '../../src/eval/effect-tracker.ts';
 import { runWeeklyRetraining } from './retraining-job.ts';
+import { runCollectionsCycle } from './collections-cycle.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +75,32 @@ export async function pollWeeklyRetraining(deps: SchedulerDeps): Promise<void> {
       }
     } catch (err: any) {
       log('error', `Retraining failed for ${tenantId}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Run the autonomous collections cycle for all active tenants.
+ * Triggered every 4 hours by the poll loop (configurable per worker schedule).
+ */
+export async function pollCollectionsCycles(deps: SchedulerDeps): Promise<void> {
+  const { pool, log } = deps;
+
+  // Find tenants with active collections workers
+  const tenants = await pool.query(`
+    SELECT DISTINCT tenant_id FROM workers
+    WHERE status = 'ready'
+      AND charter->>'runtimeKind' = 'collections'
+    LIMIT 50
+  `);
+
+  for (const row of tenants.rows) {
+    const tenantId = String(row.tenant_id);
+    try {
+      const result = await runCollectionsCycle(pool, tenantId);
+      log('info', `Collections cycle for ${tenantId}: ${result.actionsAutoExecuted} auto, ${result.actionsEscrowed} escrowed, epochs=${result.epochsCreated}/${result.epochsResolved}`);
+    } catch (err: any) {
+      log('error', `Collections cycle failed for ${tenantId}: ${err.message}`);
     }
   }
 }
@@ -242,6 +269,13 @@ export async function pollCycle(deps: SchedulerDeps): Promise<void> {
       log('warn', `Weekly retraining poll failed: ${retrainErr.message}`);
     }
 
+    // Run autonomous collections cycles for active tenants
+    try {
+      await pollCollectionsCycles(deps);
+    } catch (cycleErr: any) {
+      log('warn', `Collections cycle poll failed: ${cycleErr.message}`);
+    }
+
     const available = maxConcurrent - getActiveExecutions();
     if (available <= 0) return;
 
@@ -337,16 +371,35 @@ export async function pollCycle(deps: SchedulerDeps): Promise<void> {
 // Scheduler lifecycle
 // ---------------------------------------------------------------------------
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollRunning = false;
 
 export function startScheduler(deps: SchedulerDeps, intervalMs: number): void {
-  pollTimer = setInterval(() => pollCycle(deps), intervalMs);
+  // Self-rescheduling loop prevents overlapping poll cycles.
+  // setInterval doesn't await async functions — two cycles can run concurrently.
+  // setTimeout after completion guarantees serial execution.
+  async function loop() {
+    if (deps.isShuttingDown()) return;
+    if (pollRunning) return;
+    pollRunning = true;
+    try {
+      await pollCycle(deps);
+    } catch (err: any) {
+      deps.log('error', `Poll cycle error: ${err?.message}`);
+    } finally {
+      pollRunning = false;
+    }
+    if (!deps.isShuttingDown()) {
+      pollTimer = setTimeout(loop, intervalMs);
+    }
+  }
+  pollTimer = setTimeout(loop, 100);
   deps.log('info', `Poll loop started (every ${intervalMs}ms, max ${deps.maxConcurrent} concurrent)`);
 }
 
 export function stopScheduler(): void {
   if (pollTimer) {
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     pollTimer = null;
   }
 }

@@ -170,8 +170,28 @@ export async function webSearch({ query, count = 5 }) {
   return webSearchDuckDuckGo(query, normalizedCount);
 }
 
+function validateExternalUrl(url) {
+  let parsed;
+  try { parsed = new URL(String(url)); } catch { throw new Error('Invalid URL'); }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Only HTTP(S) URLs are allowed');
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  // Block private/reserved IP ranges and cloud metadata endpoints
+  const blocked = [
+    /^localhost$/i, /^127\.\d/, /^10\.\d/, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+    /^169\.254\./, /^0\./, /^\[::1\]$/, /^\[fd/, /^\[fe80/,
+    /^metadata\.google\.internal$/, /^169\.254\.169\.254$/,
+  ];
+  if (blocked.some(re => re.test(hostname))) {
+    throw new Error('Access to private/internal URLs is not allowed');
+  }
+  return parsed.toString();
+}
+
 export async function browseWebpage({ url, selector }) {
-  const resp = await fetch(url, {
+  const safeUrl = validateExternalUrl(url);
+  const resp = await fetch(safeUrl, {
     headers: {
       'User-Agent': BROWSER_UA,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -206,7 +226,8 @@ export async function browseWebpage({ url, selector }) {
 }
 
 export async function readDocument({ url, format = 'auto' }) {
-  const resp = await fetch(url, {
+  const safeUrl = validateExternalUrl(url);
+  const resp = await fetch(safeUrl, {
     headers: { 'User-Agent': BROWSER_UA },
     signal: AbortSignal.timeout(15000),
     redirect: 'follow',

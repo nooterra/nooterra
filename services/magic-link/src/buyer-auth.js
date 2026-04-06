@@ -178,7 +178,9 @@ export async function verifyAndConsumeBuyerOtp({ dataDir, tenantId, email, code,
 
   const expected = String(rec.codeSha256 ?? "");
   const actual = sha256Hex(`${t}\n${emailNorm}\n${codeNorm}`);
-  if (expected !== actual) {
+  // Timing-safe comparison to prevent side-channel OTP brute-force
+  const match = expected.length === actual.length && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'));
+  if (!match) {
     rec.attempts = (Number.isInteger(attempts) ? attempts : 0) + 1;
     await fs.writeFile(fp, JSON.stringify(rec, null, 2) + "\n", "utf8");
     return { ok: false, error: "OTP_INVALID", message: "invalid code" };

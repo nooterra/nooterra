@@ -12,7 +12,7 @@ import { createCheckoutSession, createCreditPurchase, handleStripeWebhook, getBi
 import { deliverNotification, sendSlackTestNotification, getNotificationPreferences } from './notifications.js';
 import { handleWorkerRoute } from './workers-api.js';
 import { handleAuthorize, handleStatus as handleIntegrationStatus, handleDisconnect } from './integrations.js';
-import { getAuthenticatedTenantId } from './auth.js';
+import { getAuthenticatedPrincipal, getAuthenticatedTenantId } from './auth.js';
 import { encryptCredential } from './crypto-utils.js';
 import {
   ACTIVE_STRIPE_SCAN_TIMEOUT_MS,
@@ -73,16 +73,17 @@ function readBodyRaw(req: IncomingMessage): Promise<Buffer> {
 }
 
 async function requireAuthenticatedTenant(req: IncomingMessage): Promise<
-  { ok: true; tenantId: string }
+  { ok: true; tenantId: string; userId: string; email: string }
   | { ok: false; status: number; message: string }
 > {
-  const tenantId = await getAuthenticatedTenantId(req);
-  if (!tenantId) {
+  const principal = await getAuthenticatedPrincipal(req);
+  if (!principal) {
     return { ok: false, status: 401, message: 'Authentication required' };
   }
 
+  // Cross-check: if x-tenant-id header is present, it must match the session
   const headerTenantId = req.headers['x-tenant-id'];
-  if (typeof headerTenantId === 'string' && headerTenantId.trim() && headerTenantId.trim() !== tenantId) {
+  if (typeof headerTenantId === 'string' && headerTenantId.trim() && headerTenantId.trim() !== principal.tenantId) {
     return {
       ok: false,
       status: 403,
@@ -90,7 +91,7 @@ async function requireAuthenticatedTenant(req: IncomingMessage): Promise<
     };
   }
 
-  return { ok: true, tenantId };
+  return { ok: true, tenantId: principal.tenantId, userId: principal.userId, email: principal.email };
 }
 
 // ---------------------------------------------------------------------------
@@ -344,14 +345,15 @@ export function createRequestHandler(deps: RouterDeps) {
     // --- Billing ---
     if (req.method === 'POST' && pathname === '/v1/billing/checkout') {
       try {
-        const body = await readBody(req);
-        const data = JSON.parse(body);
-        const tenantId = req.headers['x-tenant-id'] || data.tenantId;
-        if (!tenantId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing tenant ID' }));
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
           return;
         }
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        const tenantId = auth.tenantId;
         if (!data.email) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing email' }));
@@ -382,7 +384,7 @@ export function createRequestHandler(deps: RouterDeps) {
       } catch (err: any) {
         log('error', `Billing checkout error: ${err.message}`);
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Checkout failed. Please try again.' }));
       }
       return;
     }
@@ -403,12 +405,13 @@ export function createRequestHandler(deps: RouterDeps) {
     }
 
     if (req.method === 'GET' && pathname === '/v1/billing/status') {
-      const tenantId = req.headers['x-tenant-id'] as string;
-      if (!tenantId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      const auth = await requireAuthenticatedTenant(req);
+      if (!auth.ok) {
+        res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: auth.message }));
         return;
       }
+      const tenantId = auth.tenantId;
       try {
         const status = await getBillingStatus(tenantId, pool);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -416,19 +419,20 @@ export function createRequestHandler(deps: RouterDeps) {
       } catch (err: any) {
         log('error', `Billing status error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Failed to retrieve billing status' }));
       }
       return;
     }
 
     // --- Notification preferences ---
     if (req.method === 'GET' && pathname === '/v1/notifications/preferences') {
-      const tenantId = req.headers['x-tenant-id'] as string;
-      if (!tenantId) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+      const auth = await requireAuthenticatedTenant(req);
+      if (!auth.ok) {
+        res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: auth.message }));
         return;
       }
+      const tenantId = auth.tenantId;
       try {
         const prefs = await getNotificationPreferences(pool, tenantId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -443,14 +447,15 @@ export function createRequestHandler(deps: RouterDeps) {
 
     if (req.method === 'PUT' && pathname === '/v1/notifications/preferences') {
       try {
-        const body = await readBody(req);
-        const data = JSON.parse(body);
-        const tenantId = req.headers['x-tenant-id'] as string;
-        if (!tenantId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing x-tenant-id header' }));
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
           return;
         }
+        const body = await readBody(req);
+        const data = JSON.parse(body);
+        const tenantId = auth.tenantId;
 
         await pool.query(`
           INSERT INTO notification_preferences (tenant_id, preferences, updated_at)
@@ -471,6 +476,14 @@ export function createRequestHandler(deps: RouterDeps) {
 
     if (req.method === 'POST' && pathname === '/v1/notifications/test-slack') {
       try {
+        // Require authentication
+        const auth = await requireAuthenticatedTenant(req);
+        if (!auth.ok) {
+          res.writeHead(auth.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: auth.message }));
+          return;
+        }
+
         const body = await readBody(req);
         const data = JSON.parse(body);
         if (!data.webhookUrl) {
@@ -478,13 +491,22 @@ export function createRequestHandler(deps: RouterDeps) {
           res.end(JSON.stringify({ error: 'Missing webhookUrl' }));
           return;
         }
-        const result = await sendSlackTestNotification(data.webhookUrl);
+
+        // SSRF protection: only allow Slack webhook URLs
+        const webhookUrl = String(data.webhookUrl).trim();
+        if (!webhookUrl.startsWith('https://hooks.slack.com/')) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Only Slack webhook URLs (https://hooks.slack.com/) are allowed' }));
+          return;
+        }
+
+        const result = await sendSlackTestNotification(webhookUrl);
         res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err: any) {
-        log('error', `Slack test error: ${err.message}`);
+        log('error', `Slack test error`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'Slack test failed' }));
       }
       return;
     }

@@ -269,6 +269,48 @@ async function callSidecar(
   }
 }
 
+interface SidecarPredictV2Response {
+  value: number;
+  confidence: number;
+  interval: { lower: number; upper: number; coverage: number };
+  model_id: string;
+  feature_count: number;
+  feature_hash: string;
+  drift_detected: boolean;
+  in_distribution: boolean;
+  tenant_stats_available: boolean;
+  trajectory_available: boolean;
+}
+
+async function callSidecarV2(
+  tenantId: string,
+  objectId: string,
+  predictionType: string,
+): Promise<SidecarPredictV2Response | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const res = await fetch(`${ML_SIDECAR_URL}/predict/v2`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant_id: tenantId,
+        object_id: objectId,
+        prediction_type: predictionType,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    return (await res.json()) as SidecarPredictV2Response;
+  } catch {
+    return null;
+  }
+}
+
 async function callInterventionSidecar(input: {
   tenantId: string;
   objectId: string;
@@ -501,7 +543,7 @@ export async function predict(
 
   const value = estimated[request.predictionType]!;
 
-  // Build feature vector from object state for the sidecar
+  // Build feature vector from object state for the sidecar (legacy path)
   const state = obj.state as Record<string, unknown>;
   const features: Record<string, number> = {
     ...estimated,
@@ -511,7 +553,32 @@ export async function predict(
       : 0,
   };
 
-  // Try ML sidecar for enhanced prediction (intervals, calibration, drift, OOD)
+  // Try v2 first — builds full 34-feature vector with tenant stats + trajectory
+  const v2Result = await callSidecarV2(
+    request.tenantId,
+    request.objectId,
+    request.predictionType,
+  );
+  if (v2Result) {
+    return {
+      objectId: request.objectId,
+      predictionType: request.predictionType,
+      value: v2Result.value,
+      confidence: v2Result.confidence,
+      interval: v2Result.interval,
+      modelId: v2Result.model_id,
+      reasoning: [
+        `Full feature prediction (${v2Result.feature_count} features)`,
+        `Tenant stats: ${v2Result.tenant_stats_available ? 'available' : 'defaults'}`,
+        `Trajectory: ${v2Result.trajectory_available ? 'available' : 'defaults'}`,
+      ],
+      calibrationScore: v2Result.confidence,
+      driftDetected: v2Result.drift_detected,
+      inDistribution: v2Result.in_distribution,
+    };
+  }
+
+  // Fall back to legacy /predict with basic features
   const sidecarResult = await callSidecar(
     request.tenantId,
     request.objectId,
