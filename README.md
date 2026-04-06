@@ -23,9 +23,9 @@
 
 ## What Nooterra does
 
-You create AI workers with permission rules. Each worker has a charter that defines what it **can do** autonomously, what it must **ask first** about, and what it can **never do**. Workers take real actions — sending emails, making payments, scheduling meetings — and the charter is enforced at the action layer, after the model generates intent but before any tool executes.
+Nooterra is a world-model runtime for business operations. It records events from connected systems, projects them into typed business objects, attaches estimated state, and routes actions through a governed gateway.
 
-Workers learn from their own execution history. Approval patterns feed back into trust levels. The system gets smarter the more you use it.
+Workers are one layer of that runtime, not the whole product. They read from the world model, propose or execute actions, and earn autonomy from traced performance. The runtime remains fail-closed: policy is enforced at the action layer after intent is generated but before any external side effect executes.
 
 ## The permission model
 
@@ -37,7 +37,7 @@ Workers learn from their own execution history. Approval patterns feed back into
 
 ## Get started
 
-Go to **[nooterra.ai](https://nooterra.ai)** → create a worker → define its charter → activate.
+Go to **[nooterra.ai](https://nooterra.ai)** → connect Stripe → review company state → enter governed shadow mode.
 
 ## Architecture
 

@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS kill_switch (
   reason TEXT,
   enabled_by TEXT,
   enabled_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (scope, COALESCE(tenant_id, '__global__'))
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kill_switch_scope_tenant
+  ON kill_switch (scope, COALESCE(tenant_id, '__global__'));

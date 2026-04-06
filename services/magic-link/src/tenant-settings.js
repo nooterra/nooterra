@@ -111,16 +111,27 @@ export const TENANT_PLAN_CATALOG = Object.freeze({
   }),
 });
 
+const TENANT_PLAN_ALIASES = Object.freeze({
+  sandbox: "free",
+  starter: "builder",
+  pro: "growth",
+  scale: "enterprise",
+  finance_ops: "enterprise",
+  "finance-ops": "enterprise",
+  financeops: "enterprise",
+});
+
+const TENANT_PLAN_ERROR_MESSAGE = "plan must be one of free|builder|growth|enterprise|sandbox|starter|pro|scale|finance_ops";
+
 export function normalizeTenantPlan(value, { allowNull = false } = {}) {
   if (value === null || value === undefined || value === "") {
     if (allowNull) return null;
     return "free";
   }
   const rawPlan = String(value).trim().toLowerCase();
-  // Backward compatibility for older persisted settings.
-  const plan = rawPlan === "scale" ? "enterprise" : rawPlan;
+  const plan = TENANT_PLAN_ALIASES[rawPlan] || rawPlan;
   if (!Object.prototype.hasOwnProperty.call(TENANT_PLAN_CATALOG, plan)) {
-    throw new TypeError("plan must be free|builder|growth|enterprise");
+    throw new TypeError(TENANT_PLAN_ERROR_MESSAGE);
   }
   return plan;
 }
@@ -823,7 +834,7 @@ function normalizeSettingsPatch(patch, { currentSettings }) {
     try {
       out.plan = normalizeTenantPlan(patch.plan, { allowNull: false });
     } catch (err) {
-      return { ok: false, error: err?.message ?? "plan must be free|builder|growth|enterprise" };
+      return { ok: false, error: err?.message ?? TENANT_PLAN_ERROR_MESSAGE };
     }
   }
 

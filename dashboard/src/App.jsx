@@ -4,10 +4,7 @@ import { initAnalytics, page } from "./product/analytics.js";
 
 initAnalytics();
 
-// LovableSite removed from routing — consolidated to LandingPage
-// const LovableSite = lazy(() => import("./lovable/LovableSite.jsx"));
-const OperatorDashboard = lazy(() => import("./operator/OperatorDashboard.jsx"));
-const ProductShell = lazy(() => import("./product/ProductShell.jsx"));
+// Dead code removed: OperatorDashboard, ProductShell, LovableSite
 
 // World Runtime views (new)
 const LandingPage = lazy(() => import("./site/LandingPage.jsx"));
@@ -356,13 +353,7 @@ export default function App() {
     );
   }
 
-  if (route.mode === "operator") {
-    return (
-      <Suspense fallback={<RouteLoadingScreen label="Loading operator console" />}>
-        <OperatorDashboard />
-      </Suspense>
-    );
-  }
+  // Public/marketing pages
   if (
     alwaysPublicModes.has(route.mode) ||
     (trustEntryModes.has(route.mode) && !hasManagedRuntime && !wantsManagedOnboarding)
@@ -373,15 +364,11 @@ export default function App() {
       </Suspense>
     );
   }
+
+  // Fallback: redirect unknown routes to collections
   return (
     <Suspense fallback={<RouteLoadingScreen label="Loading Nooterra" />}>
-      <ProductShell
-        mode={route.mode === "workspace" ? "onboarding" : route.mode}
-        launchId={route.launchId}
-        agentId={route.agentId}
-        runId={route.runId}
-        requestedPath={route.requestedPath}
-      />
+      <ArShell />
     </Suspense>
   );
 }

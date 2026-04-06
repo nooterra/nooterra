@@ -135,7 +135,6 @@
     "publish:tarball": "npm pack"
   },
   "dependencies": {
-    "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@coinbase/cdp-sdk": "^1.44.1",
     "@composio/core": "^0.6.7",
     "@sentry/node": "^10.16.0",

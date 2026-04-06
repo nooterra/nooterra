@@ -4,7 +4,7 @@
  * Usage:
  *   import { track, identify, page } from "./analytics.js";
  *   track("worker.created", { model: "gemini-2.5-flash", template: "support" });
- *   identify(tenantId, { plan: "pro", workerCount: 5 });
+ *   identify(tenantId, { plan: "growth", workerCount: 5 });
  *   page("dashboard");
  */
 

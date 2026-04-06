@@ -1272,6 +1272,54 @@ export async function upsertPromotionQualityEvaluationReport(
   });
 }
 
+export async function upsertRetrainingStateEvaluationReport(
+  pool: pg.Pool,
+  input: {
+    tenantId: string;
+    triggeredBy: string;
+    completedAt: string;
+    windowStart: string;
+    gradedOutcomesExported: number;
+    probabilityModel: { status: string; modelId: string | null; samples: number };
+    upliftModel: { status: string; modelId: string | null; samples: number };
+  },
+): Promise<EvaluationReportRecord> {
+  const probabilityTrained = input.probabilityModel.status === 'trained';
+  const upliftTrained = input.upliftModel.status === 'trained';
+  const sidecarUnavailable = input.probabilityModel.status === 'sidecar_unavailable'
+    || input.upliftModel.status === 'sidecar_unavailable';
+  const status = sidecarUnavailable
+    ? 'degraded'
+    : (probabilityTrained || upliftTrained)
+      ? 'completed'
+      : 'insufficient_data';
+
+  return upsertEvaluationReport(pool, {
+    tenantId: input.tenantId,
+    reportType: 'retraining_state',
+    subjectType: 'scheduler_job',
+    subjectId: 'weekly_retraining',
+    status,
+    schemaVersion: 'world.eval.retraining-state.v1',
+    metrics: {
+      gradedOutcomesExported: input.gradedOutcomesExported,
+      probabilityModelStatus: input.probabilityModel.status,
+      probabilityModelSamples: input.probabilityModel.samples,
+      upliftModelStatus: input.upliftModel.status,
+      upliftModelSamples: input.upliftModel.samples,
+      modelsTrained: Number(probabilityTrained) + Number(upliftTrained),
+    },
+    artifact: {
+      triggeredBy: input.triggeredBy,
+      completedAt: input.completedAt,
+      lastCompletedAt: input.completedAt,
+      windowStart: input.windowStart,
+      probabilityModel: input.probabilityModel,
+      upliftModel: input.upliftModel,
+    },
+  });
+}
+
 export async function upsertUpliftQualityEvaluationReport(
   pool: pg.Pool,
   tenantId: string,

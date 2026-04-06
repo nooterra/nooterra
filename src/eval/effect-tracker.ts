@@ -948,7 +948,7 @@ export interface GradedOutcome {
   actionId: string;
   tenantId: string;
   actionClass: string;
-  decisionType: 'intervention' | 'strategic_hold' | 'defensive_abstention';
+  decisionType: string;  // actual action class (e.g. 'communicate.email') or 'strategic_hold'
   targetObjectId: string;
   targetObjectType: string;
   variantId: string | null;
@@ -1023,7 +1023,7 @@ export async function exportGradedOutcomes(
       targetObjectType: String(row.target_object_type),
       decisionType: String(row.action_class) === 'strategic.hold'
         ? 'strategic_hold'
-        : 'intervention',
+        : String(row.action_class),
       variantId: params.recommendedVariantId ?? null,
       invoiceAmountCents: Number(params.amountCents ?? 0),
       daysOverdueAtAction: Number(params.daysOverdue ?? 0),

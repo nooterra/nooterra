@@ -1,20 +1,20 @@
 @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 :root {
-  /* Core palette — warm but with more contrast than generic cream */
-  --bg-100: #faf9f6;
-  --bg-200: #f3f1ec;
-  --bg-300: #eae7e0;
+  /* Core palette — cooler institutional bone/paper/chalk */
+  --bg-100: #F5F4F0;
+  --bg-200: #EEEDEA;
+  --bg-300: #E5E3DE;
   --bg-400: #ffffff;
 
-  --text-100: #111110;
-  --text-200: #4a4a45;
-  --text-300: #74746d;
+  --text-100: #1A1B1E;
+  --text-200: #4A4B52;
+  --text-300: #7A7B82;
 
-  /* Signature accent — warm terracotta, not generic gold */
-  --accent: #c4613a;
-  --accent-hover: #a8502e;
-  --accent-subtle: #c4613a12;
+  /* Signal accent — oxidized teal, used sparingly */
+  --accent: #0A8A7A;
+  --accent-hover: #076E63;
+  --accent-subtle: #0A8A7A10;
 
   /* Semantic greens/yellows/reds for charter rules */
   --green: #2a9d6e;
@@ -54,9 +54,10 @@
   --text-3xl: clamp(3rem, 4vw + 1rem, 5.5rem);
   --text-display: clamp(3.5rem, 5vw + 1rem, 6rem);
 
-  --font-body: "Plus Jakarta Sans", -apple-system, system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
   --font-display: "Fraunces", Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-heading: "Space Grotesk", "DM Sans", system-ui, sans-serif;
+  --font-mono: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
 
   /* Layout */
   --max-w: 1140px;
@@ -452,5 +453,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ── Landing page grid layouts ── */
+.lp-hero-grid { display: grid; grid-template-columns: 1fr; gap: 48px; align-items: start; }
+@media (min-width: 820px) { .lp-hero-grid { grid-template-columns: 7fr 5fr; gap: 64px; } }
+
+.lp-wedge-grid { display: grid; grid-template-columns: 1fr; gap: 48px; }
+@media (min-width: 1080px) { .lp-wedge-grid { grid-template-columns: 5fr 7fr; gap: 64px; align-items: start; } }
+
+.lp-arch-grid { display: grid; grid-template-columns: 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); overflow: hidden; }
+@media (min-width: 640px) { .lp-arch-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1080px) { .lp-arch-grid { grid-template-columns: repeat(5, 1fr); } }
+
+.lp-diff-grid { display: grid; grid-template-columns: 1fr; gap: 48px; }
+@media (min-width: 1080px) { .lp-diff-grid { grid-template-columns: 3fr 9fr; gap: 64px; } }
+
+.lp-trust-grid { display: flex; flex-direction: column; gap: 0; }
+@media (min-width: 820px) { .lp-trust-grid { flex-direction: row; } }
+
+.lp-footer { display: flex; flex-direction: column; gap: 16px; }
+@media (min-width: 640px) { .lp-footer { flex-direction: row; justify-content: space-between; align-items: center; } }
 
 /* deploy trigger */

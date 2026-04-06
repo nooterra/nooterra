@@ -1,21 +1,21 @@
 ---
 title: "Nooterra"
 sidebarTitle: "Introduction"
-description: "Describe your business. We staff it with AI."
+description: "Connect a live source. We build the world model around it."
 ---
 
 ## What is Nooterra?
 
-Nooterra turns a single sentence about your business into a team of AI workers that handle your daily operations. Every worker operates under a **charter** — explicit rules that define what they can do autonomously, what needs your approval, and what's permanently off-limits.
+Nooterra is a world-model runtime for business operations. It turns events from connected systems into a live object graph of customers, invoices, payments, disputes, and governed actions. In this milestone, Stripe is the first live source.
 
-Workers don't chat. They **act** — reading emails, drafting replies, looking up billing, scheduling appointments, managing reviews, sending invoices. Every action is governed, audited, and reversible.
+Workers operate inside that runtime. They do not act from empty context: they read the current world state, propose or execute actions through policy enforcement, and leave an append-only audit trail behind every step.
 
 <CardGroup cols={2}>
   <Card title="Deploy your first team" icon="rocket" href="/getting-started">
-    From zero to a running AI workforce in 60 seconds.
+    From Stripe connection to governed runtime in minutes.
   </Card>
   <Card title="How charters work" icon="shield-halved" href="/charters">
-    The permission system that makes AI workers safe to trust.
+    The policy runtime that makes governed action safe to trust.
   </Card>
 </CardGroup>
 
@@ -23,32 +23,32 @@ Workers don't chat. They **act** — reading emails, drafting replies, looking u
 
 ## The three permission levels
 
-Every action a worker takes is classified against its charter in real time.
+Every action a worker takes is classified against the policy runtime in real time.
 
 | Level | What happens | Example |
 |---|---|---|
-| **canDo** | Runs autonomously, no human needed | Read emails, search FAQ, draft replies |
-| **askFirst** | Pauses and routes to you for approval | Issue refunds, send external emails, modify accounts |
+| **canDo** | Runs autonomously, no human needed | Read invoice state, compute predictions, prepare governed reminders |
+| **askFirst** | Pauses and routes to you for approval | Issue refunds, send external reminders, modify accounts |
 | **neverDo** | Hard-blocked at runtime, no exceptions | Delete customer data, share PII, exceed budget |
 
-This isn't prompt engineering. Unknown actions default to **blocked**. The system is fail-closed.
+This isn't prompt engineering. Unknown actions default to **blocked**. The system is fail-closed and auditable.
 
 ---
 
 ## How it works
 
 <Steps>
-  <Step title="Describe your business">
-    "I run a plumbing company in Denver with 8 technicians."
+  <Step title="Connect a live source">
+    Start with Stripe. Nooterra records business events into the event ledger immediately.
   </Step>
-  <Step title="Review your team">
-    Nooterra designs workers tailored to your operations — receptionist, dispatcher, billing, reviews. Each with specific charters.
+  <Step title="Review company state">
+    Customers, invoices, payments, and disputes appear in the object graph with observed and estimated state separated.
   </Step>
-  <Step title="Activate">
-    Workers start handling real work. Sensitive actions route to your inbox for approval. Everything is logged.
+  <Step title="Activate governed operation">
+    Actions route through the gateway, sensitive work pauses for approval, and every decision stays logged.
   </Step>
-  <Step title="Workers earn trust">
-    As you approve the same action type repeatedly, workers can earn autonomy. You stay in control of the pace.
+  <Step title="Earn autonomy">
+    As the same action types succeed repeatedly, the runtime can recommend broader autonomy. You control the pace.
   </Step>
 </Steps>
 

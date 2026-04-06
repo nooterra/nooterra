@@ -1,8 +1,8 @@
 """
 Two-model uplift baseline (T-learner).
 
-Treatment model: P(paid | action taken, features)
-Control model:   P(paid | hold/no-action, features)
+Treatment model: P(paid | target action taken, features)
+Control model:   P(paid | target action not taken, features)
 Lift:            treatment_prob - control_prob
 """
 from __future__ import annotations
@@ -49,21 +49,37 @@ def _build_features_from_graded_outcome(row: dict[str, Any]) -> dict[str, float]
             reference_time=_parse_datetime(row.get("action_at")),
         )
 
+    # Accept both camelCase (from TypeScript) and snake_case (from stored features).
+    # Use `is not None` instead of `or` so that real 0/0.0 values are not
+    # treated as missing and silently replaced by a default.
+    def _pick(camel_key: str, snake_key: str, default=None):
+        v = row.get(camel_key)
+        if v is not None:
+            return v
+        v = row.get(snake_key)
+        if v is not None:
+            return v
+        return default
+
+    amount = _to_float(_pick("invoiceAmountCents", "invoice_amount_cents"))
+    days_overdue = _to_float(_pick("daysOverdueAtAction", "days_overdue"))
+    pred_prob = _to_float(_pick("predictedPaymentProb7d", "predicted_payment_prob", 0.5))
+
     return {
-        "amountCents": _to_float(row.get("invoice_amount_cents")),
-        "amountRemainingCents": _to_float(row.get("invoice_amount_cents")),
+        "amountCents": amount,
+        "amountRemainingCents": amount,
         "amountPaidCents": 0.0,
         "amountRemainingRatio": 1.0,
         "amountPaidRatio": 0.0,
-        "daysOverdue": _to_float(row.get("days_overdue")),
+        "daysOverdue": days_overdue,
         "isOverdue": 1.0,
         "isSent": 0.0,
         "isPartial": 0.0,
         "isPaid": 0.0,
         "isDisputed": 0.0,
         "disputeRisk": 0.0,
-        "urgency": min(1.0, _to_float(row.get("days_overdue")) / 30.0),
-        "paymentProbability30d": _to_float(row.get("predicted_payment_prob", 0.5)),
+        "urgency": min(1.0, days_overdue / 30.0) if days_overdue else 0.0,
+        "paymentProbability30d": pred_prob,
         "paymentReliability": 0.5,
         "churnRisk": 0.2,
     }
@@ -81,13 +97,18 @@ def fit_uplift_model(
     control_rows = []
 
     for row in outcomes:
-        decision = row.get("decision_type", "")
-        ac = row.get("action_class", "")
-        if decision == "strategic_hold" or ac == "strategic.hold":
-            control_rows.append(row)
-        elif ac == action_class:  # STRICT: only this action class in treatment
+        # Accept both camelCase (from TypeScript retraining job) and
+        # snake_case (from stored training_examples features)
+        ac_val = row.get("actionClass")
+        ac = ac_val if ac_val is not None else row.get("action_class", "")
+        if ac == action_class:
             treatment_rows.append(row)
-        # Rows with other action classes are DROPPED — not treatment, not control
+        else:
+            # Control = everything that is NOT the target action class.
+            # This includes strategic holds AND other action types, giving
+            # the uplift model a proper counterfactual: "what happens when
+            # we don't take this specific action?"
+            control_rows.append(row)
 
     if len(treatment_rows) < min_treatment or len(control_rows) < min_control:
         return None
@@ -103,9 +124,13 @@ def fit_uplift_model(
         )
 
     X_treat = to_matrix(treatment_features)
-    y_treat = np.asarray([1 if row.get("objective_achieved") else 0 for row in treatment_rows], dtype=np.int32)
+    def _achieved(row):
+        v = row.get("objectiveAchieved")
+        return v if v is not None else row.get("objective_achieved")
+
+    y_treat = np.asarray([1 if _achieved(row) else 0 for row in treatment_rows], dtype=np.int32)
     X_ctrl = to_matrix(control_features)
-    y_ctrl = np.asarray([1 if row.get("objective_achieved") else 0 for row in control_rows], dtype=np.int32)
+    y_ctrl = np.asarray([1 if _achieved(row) else 0 for row in control_rows], dtype=np.int32)
 
     if len(set(y_treat.tolist())) < 2 or len(set(y_ctrl.tolist())) < 2:
         return None
@@ -152,7 +177,7 @@ def fit_uplift_model(
         metadata={
             "model_family": "t_learner",
             "treatment_action_class": action_class,
-            "control_decision_type": "strategic_hold",
+            "control_population": "all_non_target_actions",
         },
     )
 

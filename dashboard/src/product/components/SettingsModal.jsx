@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   S, WORK_FUNCTIONS, loadTheme, saveTheme, navigate, logoutSession, workerApiRequest,
-  ONBOARDING_STORAGE_KEY, tierLabel, tierColor,
+  ONBOARDING_STORAGE_KEY, tierLabel, tierColor, isTrialTier, nextUpgradeProductTier, normalizeProductTier,
 } from "../shared.js";
 import {
   loadRuntimeConfig,
@@ -205,7 +205,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
     return <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 20px", fontSize: "14px", opacity: isSaving ? 0.7 : 1, background: isSaved ? "var(--green, #2f6d56)" : isError ? "var(--red, #a15347)" : "var(--text-100)", transition: "background 300ms, opacity 150ms, transform 150ms", transform: isSaved ? "scale(1.02)" : "scale(1)", cursor: isSaving ? "default" : "pointer" }} disabled={isSaving} onClick={handleSave}>{isSaving ? "Saving..." : isSaved ? "\u2713 Saved" : isError ? "Try again" : label}</button>;
   }
 
-  const currentTier = userTier || "free";
+  const currentTier = normalizeProductTier(userTier || "sandbox");
   const balance = creditBalance != null ? (creditBalance / 100).toFixed(2) : "0.00";
 
   return (
@@ -377,7 +377,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                     <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{tierLabel(currentTier)} plan</div>
                     <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginTop: 2 }}>Credits: ${balance}</div>
                   </div>
-                  {currentTier === "free" && <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: "pro" })}>{billingLoading ? "..." : "Upgrade"}</button>}
+                  {isTrialTier(currentTier) && <button style={{ ...S.btnSecondary, width: "auto", padding: "6px 16px", fontSize: "13px", opacity: billingLoading ? 0.6 : 1 }} disabled={billingLoading} onClick={() => handleBillingCheckout({ plan: nextUpgradeProductTier(currentTier) })}>{billingLoading ? "..." : "Upgrade"}</button>}
                 </div>
                 <label style={S.label}>Credits</label>
                 <div style={{ display: "flex", gap: 8, marginBottom: "1.5rem", flexWrap: "wrap" }}>
@@ -407,7 +407,7 @@ function SettingsModal({ userEmail, userTier, creditBalance, onClose }) {
                     ))}
                   </div>
                 )}
-                {currentTier !== "free" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }}>Cancel plan</button></>)}
+                {currentTier !== "sandbox" && (<><div style={{ borderTop: "1px solid var(--border)", margin: "1.5rem 0" }} /><button style={{ ...S.btnGhost, color: "var(--text-tertiary)", fontSize: "13px" }}>Cancel plan</button></>)}
               </div>)}
             </>)}
           </div>

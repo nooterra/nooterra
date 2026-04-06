@@ -188,8 +188,12 @@ export function generateOptimizationReport(
   coverageMap: CoverageMap,
   agentConfigs: { id: string; actionClasses: string[] }[],
   pendingEscrowCount: number,
+  options: {
+    coverageCells?: CoverageCell[];
+    autonomyProposals?: AuthorityProposal[];
+  } = {},
 ): OptimizationReport {
-  const allCoverage = coverageMap.getAllCoverage();
+  const allCoverage = options.coverageCells ?? coverageMap.getAllCoverage();
   const agentCoverage = new Map<string, CoverageCell[]>();
 
   for (const cell of allCoverage) {
@@ -252,7 +256,7 @@ export function generateOptimizationReport(
   recommendations.sort((a, b) => b.priority - a.priority);
 
   // Autonomy proposals
-  const autonomyProposals = generateProposals(coverageMap);
+  const autonomyProposals = options.autonomyProposals ?? generateProposals(coverageMap);
 
   return {
     generatedAt: new Date(),

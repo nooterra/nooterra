@@ -855,10 +855,16 @@ const billingProvider = String(process.env.MAGIC_LINK_BILLING_PROVIDER ?? "strip
 const stripeApiBaseUrl = String(process.env.MAGIC_LINK_BILLING_STRIPE_API_BASE_URL ?? "https://api.stripe.com").trim().replace(/\/+$/, "");
 const stripeSecretKey = process.env.MAGIC_LINK_BILLING_STRIPE_SECRET_KEY ? String(process.env.MAGIC_LINK_BILLING_STRIPE_SECRET_KEY).trim() : "";
 const stripeWebhookSecret = process.env.MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET ? String(process.env.MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET).trim() : "";
-const stripePriceIdBuilder = process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_BUILDER ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_BUILDER).trim() : "";
+const stripePriceIdBuilder = process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_STARTER
+  ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_STARTER).trim()
+  : process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_BUILDER
+    ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_BUILDER).trim()
+    : "";
 const stripePriceIdGrowth = process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH).trim() : "";
 const stripePriceIdEnterprise = process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_ENTERPRISE
   ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_ENTERPRISE).trim()
+  : process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_FINANCE_OPS
+    ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_FINANCE_OPS).trim()
   : process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE
     ? String(process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE).trim()
     : "";
@@ -1078,7 +1084,7 @@ if (!Number.isInteger(billingPricePerVerificationCents) || billingPricePerVerifi
 if (billingProvider !== "stripe" && billingProvider !== "none") throw new Error("MAGIC_LINK_BILLING_PROVIDER must be stripe|none");
 if (billingProvider === "stripe" && stripeSecretKey && !stripePriceIdBuilder && !stripePriceIdGrowth && !stripePriceIdEnterprise) {
   throw new Error(
-    "Stripe billing enabled but no price IDs configured (set one of MAGIC_LINK_BILLING_STRIPE_PRICE_ID_BUILDER, MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH, MAGIC_LINK_BILLING_STRIPE_PRICE_ID_ENTERPRISE)"
+    "Stripe billing enabled but no price IDs configured (set one of MAGIC_LINK_BILLING_STRIPE_PRICE_ID_STARTER|BUILDER, MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH, MAGIC_LINK_BILLING_STRIPE_PRICE_ID_FINANCE_OPS|ENTERPRISE)"
   );
 }
 if (billingProvider === "stripe" && stripeWebhookSecret && !stripeWebhookSecret.startsWith("whsec_")) {
@@ -1444,9 +1450,12 @@ function buildEntitlementLimitExceededResponse({ tenantId, entitlements, feature
 }
 
 function billingPriceIdForPlan(plan) {
-  if (plan === "builder") return stripePriceIdBuilder || null;
-  if (plan === "growth") return stripePriceIdGrowth || null;
-  if (plan === "enterprise") return stripePriceIdEnterprise || null;
+  const normalized = String(plan ?? "").trim().toLowerCase();
+  if (normalized === "builder" || normalized === "starter") return stripePriceIdBuilder || null;
+  if (normalized === "growth" || normalized === "pro") return stripePriceIdGrowth || null;
+  if (normalized === "enterprise" || normalized === "finance_ops" || normalized === "finance-ops" || normalized === "financeops" || normalized === "scale") {
+    return stripePriceIdEnterprise || null;
+  }
   return null;
 }
 
@@ -5834,14 +5843,14 @@ async function handleTenantBillingCheckoutCreate(req, res, tenantId) {
     return sendJson(
       res,
       400,
-      { ok: false, code: "INVALID_PLAN", message: err?.message ?? "plan must be free|builder|growth|enterprise" }
+      { ok: false, code: "INVALID_PLAN", message: err?.message ?? "plan must be one of sandbox|starter|growth|finance_ops|enterprise (legacy aliases free|builder|pro|scale are still accepted)" }
     );
   }
   if (plan === "free") {
     return sendJson(
       res,
       400,
-      { ok: false, code: "INVALID_PLAN", message: "checkout only supports paid plans (builder|growth|enterprise)" }
+      { ok: false, code: "INVALID_PLAN", message: "checkout only supports paid plans (starter|growth|finance_ops / builder|growth|enterprise aliases)" }
     );
   }
 
@@ -11030,7 +11039,7 @@ async function handleTenantIntegrationsPage(req, res, tenantId) {
     "  render();",
     "  return true;",
     "}",
-    "function nextPaidPlan(plan){ const p=String(plan||'').trim().toLowerCase(); if(p==='free') return 'builder'; if(p==='builder') return 'growth'; if(p==='growth') return 'enterprise'; return null; }",
+    "function nextPaidPlan(plan){ const p=String(plan||'').trim().toLowerCase(); if(p==='free'||p==='sandbox') return 'starter'; if(p==='builder'||p==='starter') return 'growth'; if(p==='growth'||p==='pro') return 'finance_ops'; return null; }",
     "async function startUpgradeCheckout(){",
     "  const ent = state.payload && state.payload.entitlements ? state.payload.entitlements : {};",
     "  const hintPlans = state.upgradeHintApi && Array.isArray(state.upgradeHintApi.suggestedPlans) ? state.upgradeHintApi.suggestedPlans : [];",
@@ -11395,7 +11404,7 @@ async function handleTenantSettlementPoliciesPage(req, res, tenantId) {
     "function setClass(id, base, tone){ const el=document.getElementById(id); if(!el) return; el.className = base + (tone ? ' '+tone : ''); }",
     "function setHtml(id, html){ const el=document.getElementById(id); if(el) el.innerHTML=String(html||''); }",
     "function esc(v){ return String(v===undefined||v===null?'':v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\"','&quot;').replaceAll(\"'\",'&#39;'); }",
-    "function nextPaidPlan(plan){ const p=String(plan||'').trim().toLowerCase(); if(p==='free') return 'builder'; if(p==='builder') return 'growth'; if(p==='growth') return 'enterprise'; return null; }",
+    "function nextPaidPlan(plan){ const p=String(plan||'').trim().toLowerCase(); if(p==='free'||p==='sandbox') return 'starter'; if(p==='builder'||p==='starter') return 'growth'; if(p==='growth'||p==='pro') return 'finance_ops'; return null; }",
     "async function startUpgradeCheckout(){",
     "  const payload = state.payload || {};",
     "  const ent = payload.entitlements || {};",
