@@ -135,7 +135,7 @@
     "publish:tarball": "npm pack"
   },
   "dependencies": {
-    "@coinbase/cdp-sdk": "^1.44.1",
+    "@coinbase/cdp-sdk": "^1.46.1",
     "@composio/core": "^0.6.7",
     "@sentry/node": "^10.16.0",
     "ioredis": "^5.10.1",
